@@ -18936,6 +18936,17 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         }
     }
 
+    /**
+     * @hide
+     */
+    public void bringToBack(@Nullable View targetView) {
+        if (targetView == null) return;
+        final ViewRootImpl viewRoot = getViewRootImpl();
+        if (viewRoot != null) {
+            viewRoot.bringToBack(targetView);
+        }
+    }
+
     private HapticScrollFeedbackProvider getScrollFeedbackProvider() {
         if (mScrollFeedbackProvider == null) {
             mScrollFeedbackProvider = new HapticScrollFeedbackProvider(this,
