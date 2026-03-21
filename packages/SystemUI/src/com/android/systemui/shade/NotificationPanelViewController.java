@@ -134,6 +134,7 @@ import com.android.systemui.media.controls.domain.pipeline.MediaDataManager;
 import com.android.systemui.media.controls.ui.controller.KeyguardMediaController;
 import com.android.systemui.media.controls.ui.controller.MediaHierarchyManager;
 import com.android.systemui.media.remedia.shared.flag.MediaControlsInComposeFlag;
+import com.android.systemui.mistouch.domain.interactor.MistouchInteractor;
 import com.android.systemui.model.StateChange;
 import com.android.systemui.model.SysUiState;
 import com.android.systemui.navigationbar.NavigationBarController;
@@ -549,6 +550,7 @@ public final class NotificationPanelViewController implements
     private boolean mTouchStartedInEmptyArea;
     private boolean mMotionAborted;
     private boolean mUpwardsWhenThresholdReached;
+    private boolean mMistouchInteractionNotifiedThisGesture;
     private boolean mAnimatingOnDown;
     private boolean mHandlingPointerUp;
     private ValueAnimator mHeightAnimator;
@@ -804,7 +806,11 @@ public final class NotificationPanelViewController implements
                 new GestureDetector.SimpleOnGestureListener() {
             @Override
             public boolean onDoubleTap(MotionEvent e) {
+                if (mFalsingManager.isFalseDoubleTap()) {
+                    return false;
+                }
                 if (mPowerManager != null) {
+                    notifyMistouchKeyguardInteraction();
                     mPowerManager.goToSleep(e.getEventTime());
                 }
                 return true;
@@ -1749,6 +1755,7 @@ public final class NotificationPanelViewController implements
                     ? QUICK_SETTINGS : (
                     mKeyguardStateController.canDismissLockScreen() ? UNLOCK : BOUNCER_UNLOCK);
             if (!isFalseTouch(x, y, interactionType)) {
+                notifyMistouchKeyguardInteraction();
                 mShadeLog.logFlingExpands(vel, vectorVel, interactionType,
                         this.mFlingAnimationUtils.getMinVelocityPxPerSecond(),
                         mExpandedFraction > 0.5f, mAllowExpandForSmallExpansion);
@@ -3092,7 +3099,11 @@ public final class NotificationPanelViewController implements
             } else if (mTouchDownCancelAnimator && expand) {
                 fling(0.0f, false /* expand */, false /* isFalsing */);
             } else {
-                fling(vel, expand, isFalseTouch(x, y, interactionType));
+                boolean isFalsing = isFalseTouch(x, y, interactionType);
+                if (!isFalsing) {
+                    notifyMistouchKeyguardInteraction();
+                }
+                fling(vel, expand, isFalsing);
             }
             mTouchDownCancelAnimator = false;
             onTrackingStopped(expand);
@@ -3138,6 +3149,21 @@ public final class NotificationPanelViewController implements
             return false;
         }
         return !isDirectionUpwards(x, y);
+    }
+
+    private void notifyMistouchKeyguardInteractionIfNeeded(MotionEvent event) {
+        if (mTouchAboveFalsingThreshold
+                && event.getEventTime() - event.getDownTime()
+                        >= MistouchInteractor.KEYGUARD_INTERACTION_TIMEOUT_MS) {
+            notifyMistouchKeyguardInteraction();
+        }
+    }
+
+    private void notifyMistouchKeyguardInteraction() {
+        if (!mMistouchInteractionNotifiedThisGesture && mKeyguardStateController.isShowing()) {
+            MistouchInteractor.get().handleKeyguardInteraction();
+            mMistouchInteractionNotifiedThisGesture = true;
+        }
     }
 
     private void fling(float vel, boolean expand, boolean expandBecauseOfFalsing) {
@@ -4042,6 +4068,7 @@ public final class NotificationPanelViewController implements
                     mHasLayoutedSinceDown = false;
                     mUpdateFlingOnLayout = false;
                     mTouchAboveFalsingThreshold = false;
+                    mMistouchInteractionNotifiedThisGesture = false;
                     addMovement(event);
                     break;
                 case MotionEvent.ACTION_POINTER_UP:
@@ -4300,6 +4327,7 @@ public final class NotificationPanelViewController implements
                     mDownTime = mSystemClock.uptimeMillis();
                     mStatusBarLongPressDowntime = -1L;
                     mTouchAboveFalsingThreshold = false;
+                    mMistouchInteractionNotifiedThisGesture = false;
                     mCollapsedAndHeadsUpOnDown =
                             isFullyCollapsed() && mHeadsUpManager.hasPinnedHeadsUp();
                     addMovement(event);
@@ -4386,6 +4414,7 @@ public final class NotificationPanelViewController implements
                         mTouchAboveFalsingThreshold = true;
                         mUpwardsWhenThresholdReached = isDirectionUpwards(x, y);
                     }
+                    notifyMistouchKeyguardInteractionIfNeeded(event);
                     if ((!mGestureWaitForTouchSlop || isTracking())
                             && !(mBlockingExpansionForCurrentTouch
                             || mQsController.isTrackingBlocked())) {
