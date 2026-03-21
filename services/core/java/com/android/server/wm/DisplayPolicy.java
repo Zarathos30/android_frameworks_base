@@ -545,6 +545,7 @@ public class DisplayPolicy {
                         mService.mPowerManagerInternal.setPowerBoost(
                                 Boost.INTERACTION, duration);
                     }
+                    AxRefreshRateController.getInstance().setFlingBoost(duration + 160L);
                 }
 
                 @Override

@@ -1044,6 +1044,7 @@ class DisplayContent extends RootDisplayArea implements WindowManagerPolicy.Disp
                 mTmpApplySurfaceChangesTransactionState.displayHasContent |= displayHasContent;
             }
 
+
             if (w.mHasSurface && isDisplayed) {
                 if ((w.mAttrs.flags & FLAG_KEEP_SCREEN_ON) != 0) {
                     mTmpHoldScreenWindow = w;
@@ -1256,6 +1257,9 @@ class DisplayContent extends RootDisplayArea implements WindowManagerPolicy.Disp
         mWmService.mInputManager.setInTouchMode(mInTouchMode, mWmService.MY_PID, mWmService.MY_UID,
                 /* hasPermission= */ true, mDisplayId);
         mAppCompatCameraPolicy.start();
+        if (isDefaultDisplay) {
+            AxRefreshRateController.getInstance().init(mWmService.mContext, mWmService);
+        }
     }
 
     private void beginHoldScreenUpdate() {
@@ -3041,6 +3045,9 @@ class DisplayContent extends RootDisplayArea implements WindowManagerPolicy.Disp
     void onDisplayChanged(DisplayContent dc) {
         super.onDisplayChanged(dc);
         updateSystemGestureExclusionLimit();
+        if (isDefaultDisplay) {
+            AxRefreshRateController.getInstance().onDisplayChanged();
+        }
     }
 
     void updateSystemGestureExclusionLimit() {
@@ -4142,6 +4149,9 @@ class DisplayContent extends RootDisplayArea implements WindowManagerPolicy.Disp
             if (newTask != null) newTask.onAppFocusChanged(true);
         }
 
+        if (newFocus != null && isDefaultDisplay) {
+            AxRefreshRateController.getInstance().updateFocusedApp(newFocus);
+        }
         getInputMonitor().setFocusedAppLw(newFocus);
         return true;
     }
@@ -5190,6 +5200,7 @@ class DisplayContent extends RootDisplayArea implements WindowManagerPolicy.Disp
 
         mTmpApplySurfaceChangesTransactionState.reset();
 
+
         Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "applyWindowSurfaceChanges");
         try {
             forAllWindows(mApplySurfaceChangesTransaction, true /* traverseTopToBottom */);
@@ -5199,6 +5210,25 @@ class DisplayContent extends RootDisplayArea implements WindowManagerPolicy.Disp
 
         mLastHasContent = mTmpApplySurfaceChangesTransactionState.displayHasContent;
         if (!inTransition()) {
+            if (isDefaultDisplay) {
+                final AxRefreshRateController axRrc = AxRefreshRateController.getInstance();
+                if (axRrc.shouldSuppressAppRefreshRateRequests()) {
+                    mTmpApplySurfaceChangesTransactionState.preferredModeId = 0;
+                    mTmpApplySurfaceChangesTransactionState.preferredRefreshRate = 0;
+                    mTmpApplySurfaceChangesTransactionState.preferredMinRefreshRate = 0;
+                    mTmpApplySurfaceChangesTransactionState.preferredMaxRefreshRate = 0;
+                }
+                axRrc.updateVoteResult();
+                if (axRrc.hasActiveVote()) {
+                    final float axMin = axRrc.getMinPreferredRate();
+                    final float axMax = axRrc.getMaxPreferredRate();
+                    mTmpApplySurfaceChangesTransactionState.preferredMinRefreshRate = axMin;
+                    mTmpApplySurfaceChangesTransactionState.preferredMaxRefreshRate = axMax;
+                    if (axMin > 0 && Math.abs(axMin - axMax) < 1.0f) {
+                        mTmpApplySurfaceChangesTransactionState.preferredRefreshRate = axMax;
+                    }
+                }
+            }
             mWmService.mDisplayManagerInternal.setDisplayProperties(mDisplayId,
                     mLastHasContent,
                     mTmpApplySurfaceChangesTransactionState.preferredRefreshRate,

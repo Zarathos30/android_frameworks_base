@@ -88,6 +88,7 @@ import com.android.server.display.utils.DeviceConfigParsingUtils;
 import com.android.server.display.utils.SensorUtils;
 import com.android.server.sensors.SensorManagerInternal;
 import com.android.server.statusbar.StatusBarManagerInternal;
+import com.android.server.wm.AxRefreshRateController;
 
 import java.io.PrintWriter;
 import java.text.SimpleDateFormat;
@@ -246,6 +247,13 @@ public class DisplayModeDirector {
         mDisplayObserver.observe();
 
         mSettingsObserver.observe();
+        AxRefreshRateController.getInstance().setRefreshRateUpdateCallback(
+                (min, peak, displayId) -> {
+                    synchronized (mLock) {
+                        mSettingsObserver.updateRefreshRateSettingLocked(
+                                min, peak, mSettingsObserver.getDefaultRefreshRate(), displayId);
+                    }
+                });
         mBrightnessObserver.observe(sensorManager);
         mSensorObserver.observe();
         mHbmObserver.observe();
@@ -1717,6 +1725,9 @@ public class DisplayModeDirector {
                     notifyDesiredDisplayModeSpecsChangedLocked();
                     mSettingsObserver.updateRefreshRateSettingLocked(displayId);
                 }
+            }
+            if (changed && displayId == Display.DEFAULT_DISPLAY) {
+                AxRefreshRateController.getInstance().forceResync();
             }
         }
 
