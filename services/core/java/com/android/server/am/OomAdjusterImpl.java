@@ -101,6 +101,7 @@ import android.util.Slog;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.server.LocalServices;
 import com.android.server.ServiceThread;
 import com.android.server.am.psc.ActiveUidsInternal;
 import com.android.server.am.psc.ConnectionRecordInternal;
@@ -111,6 +112,8 @@ import com.android.server.am.psc.ProcessRecordInternal;
 import com.android.server.am.psc.ProcessServiceRecordInternal;
 import com.android.server.am.psc.ServiceRecordInternal;
 import com.android.server.am.psc.UidRecordInternal;
+import com.android.server.thermal.AxAdvancedThermalMitigationProducer;
+import com.android.server.thermal.IAxAdvancedThermalMitigationService;
 import com.android.server.wm.ActivityServiceConnectionsHolder;
 
 import java.lang.annotation.Retention;
@@ -1782,6 +1785,11 @@ public class OomAdjusterImpl extends OomAdjuster {
         schedGroup = setIntermediateAdjLSP(app, adj, schedGroup);
         setIntermediateProcStateLSP(app, procState);
         setIntermediateSchedGroupLSP(app, schedGroup);
+        if (app == topApp) {
+            if (schedGroup == SCHED_GROUP_TOP_APP) {
+                notifyAtmcTopApp(app);
+            }
+        }
     }
 
     @GuardedBy({"mService", "mProcLock"})
@@ -2234,6 +2242,16 @@ public class OomAdjusterImpl extends OomAdjuster {
         app.setCurCapability(capability);
 
         return updated;
+    }
+
+    private static void notifyAtmcTopApp(ProcessRecordInternal app) {
+        IAxAdvancedThermalMitigationService service =
+                LocalServices.getService(IAxAdvancedThermalMitigationService.class);
+        if (service == null) return;
+        AxAdvancedThermalMitigationProducer producer = service.getProducer();
+        if (producer != null) {
+            producer.onTopAppChanged(app.getPid(), app.getPackageName());
+        }
     }
 
     @GuardedBy({"mService", "mProcLock"})

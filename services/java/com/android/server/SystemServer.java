@@ -258,6 +258,7 @@ import com.android.server.security.FileIntegrityService;
 import com.android.server.security.KeyAttestationApplicationIdProviderService;
 import com.android.server.security.KeyChainSystemService;
 import com.android.server.security.advancedprotection.AdvancedProtectionService;
+import com.android.server.thermal.AxAdvancedThermalMitigationService;
 import com.android.server.security.authenticationpolicy.AuthenticationPolicyService;
 import com.android.server.security.authenticationpolicy.SecureLockDeviceService;
 import com.android.server.security.authenticationpolicy.WatchRangingService;
@@ -1307,6 +1308,10 @@ public final class SystemServer implements Dumpable {
 
         t.traceBegin("StartThermalManager");
         mSystemServiceManager.startService(ThermalManagerService.class);
+        t.traceEnd();
+
+        t.traceBegin("StartAxAdvancedThermalMitigation");
+        mSystemServiceManager.startService(AxAdvancedThermalMitigationService.class);
         t.traceEnd();
 
         // Now that the power manager has been started, let the activity manager
