@@ -25,6 +25,7 @@ import android.os.Binder;
 import android.os.Environment;
 import android.os.FileUtils;
 import android.os.HandlerThread;
+import android.os.Process;
 import android.os.storage.StorageManager;
 import android.util.DataUnit;
 import android.util.Slog;
@@ -103,13 +104,24 @@ public class BitmapOffloadService extends SystemService {
             mLowBytes = DataUnit.MEBIBYTES.toBytes(256);
         }
 
-        mOffloadThread = new HandlerThread("BitmapOffloadThread");
+        mOffloadThread = new HandlerThread("BitmapOffloadThread",
+                Process.THREAD_PRIORITY_BACKGROUND);
         mOffloadThread.start();
+        applyOffloadThreadGroup();
     }
 
     @Override
     public void onStart() {
         LocalServices.addService(BitmapOffloadInternal.class, mInternalService);
+    }
+
+    private void applyOffloadThreadGroup() {
+        try {
+            Process.setThreadGroupAndCpuset(mOffloadThread.getThreadId(),
+                    Process.THREAD_GROUP_H_BACKGROUND);
+        } catch (Exception e) {
+            Slog.w(TAG, "Failed setting bitmap offload thread group", e);
+        }
     }
 
     private class BitmapOffloadRunnable implements Runnable {

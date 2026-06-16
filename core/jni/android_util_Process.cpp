@@ -412,11 +412,35 @@ static void get_cpuset_cores_for_policy(SchedPolicy policy, cpu_set_t *cpu_set)
                 return;
             }
             break;
+        case SP_L_BACKGROUND:
+            if (!CgroupGetAttributePath("lLowCapacityCPUs", &filename)) {
+                return;
+            }
+            break;
+        case SP_H_BACKGROUND:
+            if (!CgroupGetAttributePath("hLowCapacityCPUs", &filename)) {
+                return;
+            }
+            break;
         case SP_FOREGROUND:
-        case SP_AUDIO_APP:
-        case SP_AUDIO_SYS:
         case SP_RT_APP:
             if (!CgroupGetAttributePath("HighCapacityCPUs", &filename)) {
+                return;
+            }
+            break;
+        case SP_AUDIO_APP:
+        case SP_AUDIO_SYS:
+            if (!CgroupGetAttributePath("AudioCPUs", &filename)) {
+                return;
+            }
+            break;
+        case SP_AX_FOREGROUND:
+            if (!CgroupGetAttributePath("AxFgCPUs", &filename)) {
+                return;
+            }
+            break;
+        case SP_SYSTEMUI:
+            if (!CgroupGetAttributePath("SystemUICPUs", &filename)) {
                 return;
             }
             break;

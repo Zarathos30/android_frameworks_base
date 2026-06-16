@@ -41,7 +41,7 @@ public final class UiThread extends ServiceThread {
     @Override
     public void run() {
         // Make sure UiThread is in the fg stune boost group
-        Process.setThreadGroup(Process.myTid(), Process.THREAD_GROUP_TOP_APP);
+        Process.setThreadGroupAndCpuset(Process.myTid(), Process.THREAD_GROUP_TOP_APP);
         super.run();
     }
 

@@ -1315,7 +1315,7 @@ public class AudioService extends IAudioService.Stub
         public Lifecycle(Context context) {
             super(context);
             var audioserverLifecycleExecutor = Executors.newSingleThreadScheduledExecutor(
-                    (Runnable r) -> new Thread(r, "audioserver_lifecycle"));
+                    Lifecycle::newAudioServerLifecycleThread);
             var audioPolicyFacade = new DefaultAudioPolicyFacade(audioserverLifecycleExecutor);
             mService = new AudioService(context,
                               AudioSystemAdapter.getDefaultAdapter(),
@@ -1330,6 +1330,18 @@ public class AudioService extends IAudioService.Stub
                                     context, audioPolicyFacade, audioserverLifecycleExecutor),
                               audioserverLifecycleExecutor
                               );
+        }
+
+        private static Thread newAudioServerLifecycleThread(Runnable r) {
+            return new Thread(() -> {
+                try {
+                    Process.setThreadGroupAndCpuset(Process.myTid(),
+                            Process.THREAD_GROUP_AUDIO_APP);
+                } catch (Exception e) {
+                    Slog.w(TAG, "Failed to set audioserver lifecycle thread group", e);
+                }
+                r.run();
+            }, "audioserver_lifecycle");
         }
 
         @Override
