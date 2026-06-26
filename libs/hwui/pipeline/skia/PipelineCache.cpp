@@ -23,6 +23,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <log/log.h>
+#include <pthread.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -166,6 +167,8 @@ PipelineCacheStore::~PipelineCacheStore() {
 }
 
 void PipelineCacheStore::runThread() {
+    pthread_setname_np(pthread_self(), "HWUIPipeCache");
+
     while (true) {
         {
             std::unique_lock<std::mutex> lock(mMutex);

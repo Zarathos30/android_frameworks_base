@@ -19,8 +19,8 @@
 #include <SkData.h>
 #include <SkRefCnt.h>
 #include <SkString.h>
+#include <android-base/properties.h>
 #include <ganesh/GrDirectContext.h>
-#include <log/log.h>
 
 #include <cstddef>
 #include <memory>
@@ -43,7 +43,20 @@ constexpr bool separate_pipeline_cache() {
 
 namespace {
 
-constexpr size_t kMaxPipelineSizeBytes = 2 * 1024 * 1024;
+constexpr char kEnablePipelineCacheProperty[] = "persist.sys.hwui.pcache";
+constexpr char kPipelineCacheSizeProperty[] = "persist.sys.hwui.pcache_mb";
+
+bool useSeparatePipelineCache() {
+    static const bool enabled = hwui_flags::separate_pipeline_cache() ||
+            android::base::GetBoolProperty(kEnablePipelineCacheProperty, false);
+    return enabled;
+}
+
+size_t maxPipelineSizeBytes() {
+    static const int sizeMb = android::base::GetIntProperty<int>(kPipelineCacheSizeProperty, 2, 1,
+                                                                 16);
+    return static_cast<size_t>(sizeMb) * 1024 * 1024;
+}
 
 }  // namespace
 
@@ -58,7 +71,7 @@ PersistentGraphicsCache& PersistentGraphicsCache::get() {
 
 void PersistentGraphicsCache::initPipelineCache(std::string path,
                                                 useconds_t writeThrottleInterval) {
-    if (!hwui_flags::separate_pipeline_cache()) {
+    if (!useSeparatePipelineCache()) {
         return;
     }
 
@@ -93,27 +106,20 @@ void PersistentGraphicsCache::onVkFrameFlushed(GrDirectContext* context) {
 }
 
 void PersistentGraphicsCache::onVkFrameFlushed(GrDirectContextWrapper* context) {
-    if (!hwui_flags::separate_pipeline_cache()) {
+    if (!useSeparatePipelineCache() || mPipelineCache == nullptr) {
         ShaderCache::get().onVkFrameFlushed(context->unwrap());
         return;
     }
 
     mCanDetectNewVkPipelineCacheData = context->canDetectNewVkPipelineCacheData();
     if (context->hasNewVkPipelineCacheData()) {
-        context->storeVkPipelineCacheData(kMaxPipelineSizeBytes);
+        context->storeVkPipelineCacheData(maxPipelineSizeBytes());
     }
 }
 
 sk_sp<SkData> PersistentGraphicsCache::load(const SkData& key) {
-    if (!hwui_flags::separate_pipeline_cache()) {
+    if (!useSeparatePipelineCache() || mPipelineCache == nullptr) {
         return ShaderCache::get().load(key);
-    }
-
-    if (mPipelineCache == nullptr) {
-        LOG_ALWAYS_FATAL(
-                "PersistentGraphicsCache::load: pipeline cache path was not initialized, aborting "
-                "load");
-        return nullptr;
     }
 
     auto data = mPipelineCache->tryLoad(key);
@@ -126,15 +132,8 @@ sk_sp<SkData> PersistentGraphicsCache::load(const SkData& key) {
 
 void PersistentGraphicsCache::store(const SkData& key, const SkData& data,
                                     const SkString& description) {
-    if (!hwui_flags::separate_pipeline_cache()) {
+    if (!useSeparatePipelineCache() || mPipelineCache == nullptr) {
         ShaderCache::get().store(key, data, description);
-        return;
-    }
-
-    if (mPipelineCache == nullptr) {
-        LOG_ALWAYS_FATAL(
-                "PersistentGraphicsCache::store: pipeline cache path was not initialized, aborting "
-                "store");
         return;
     }
 

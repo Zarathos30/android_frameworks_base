@@ -21,6 +21,8 @@
 #include <include/gpu/ganesh/GrDirectContext.h>
 #include <log/log.h>
 #include <openssl/sha.h>
+#include <pthread.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <array>
@@ -229,6 +231,7 @@ void ShaderCache::store(const SkData& key, const SkData& data, const SkString& /
     if (!mSavePending && mDeferredSaveDelayMs > 0) {
         mSavePending = true;
         std::thread deferredSaveThread([this]() {
+            pthread_setname_np(pthread_self(), "HWUIShaderC");
             usleep(mDeferredSaveDelayMs * 1000);  // milliseconds to microseconds
             std::lock_guard lock(mMutex);
             // Store file on disk if there a new shader or Vulkan pipeline cache size changed.

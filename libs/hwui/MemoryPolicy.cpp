@@ -33,6 +33,10 @@ constexpr static MemoryPolicy sPersistentOrSystemPolicy{
         .useAlternativeUiHidden = true,
         .purgeScratchOnly = false,
 };
+constexpr static char kSystemResCacheMultiplierProperty[] =
+        "persist.sys.hwui.res_cache";
+constexpr static int kDefaultSystemResCacheMultiplier = 12 * 4;
+constexpr static int kMaxSystemResCacheMultiplier = 96;
 constexpr static MemoryPolicy sLowRamPolicy{
         .useAlternativeUiHidden = true,
         .purgeScratchOnly = false,
@@ -48,9 +52,25 @@ constexpr static MemoryPolicy sExtremeLowRam{
         .releaseContextOnStoppedOnly = true,
 };
 
+static const MemoryPolicy& loadSystemOrPersistentMemoryPolicy() {
+    static const MemoryPolicy policy{
+            .surfaceSizeMultiplier = static_cast<float>(
+                    base::GetIntProperty<int>(kSystemResCacheMultiplierProperty,
+                                              kDefaultSystemResCacheMultiplier,
+                                              kDefaultSystemResCacheMultiplier,
+                                              kMaxSystemResCacheMultiplier)),
+            .contextTimeout = sPersistentOrSystemPolicy.contextTimeout,
+            .minimumResourceRetention = sPersistentOrSystemPolicy.minimumResourceRetention,
+            .maximumResourceRetention = sPersistentOrSystemPolicy.maximumResourceRetention,
+            .useAlternativeUiHidden = sPersistentOrSystemPolicy.useAlternativeUiHidden,
+            .purgeScratchOnly = sPersistentOrSystemPolicy.purgeScratchOnly,
+    };
+    return policy;
+}
+
 const MemoryPolicy& loadMemoryPolicy() {
     if (Properties::isSystemOrPersistent) {
-        return sPersistentOrSystemPolicy;
+        return loadSystemOrPersistentMemoryPolicy();
     }
     std::string memoryPolicy = base::GetProperty(PROPERTY_MEMORY_POLICY, "");
     if (memoryPolicy == "default") {
