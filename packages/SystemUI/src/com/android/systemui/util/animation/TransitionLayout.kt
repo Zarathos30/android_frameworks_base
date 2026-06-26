@@ -43,6 +43,7 @@ class TransitionLayout @JvmOverloads constructor(
 ) : ConstraintLayout(context, attrs, defStyleAttr), LaunchableView {
 
     private val boundsRect = Rect()
+    private val clipBoundsBuffer = Rect()
     private val originalGoneChildrenSet: MutableSet<Int> = mutableSetOf()
     private val originalViewAlphas: MutableMap<Int, Float> = mutableMapOf()
     private var measureAsConstraint: Boolean = false
@@ -165,21 +166,33 @@ class TransitionLayout @JvmOverloads constructor(
             child.setLeftTopRightBottom(left, top, left + boundsWidth, top + boundsHeight)
             child.scaleX = widgetState.scale
             child.scaleY = widgetState.scale
-            val clipBounds = child.clipBounds ?: Rect()
-            clipBounds.set(clipShift, 0, widgetState.width + clipShift, widgetState.height)
-            child.clipBounds = clipBounds
-            CrossFadeHelper.fadeIn(child, widgetState.alpha)
-            child.visibility = if (widgetState.gone || widgetState.alpha == 0.0f) {
-                View.INVISIBLE
-            } else {
-                View.VISIBLE
-            }
+            clipBoundsBuffer.set(clipShift, 0, widgetState.width + clipShift, widgetState.height)
+            child.clipBounds = clipBoundsBuffer
+            applyChildAlpha(child, widgetState)
         }
         updateBounds()
         translationX = currentState.translation.x
         translationY = currentState.translation.y
 
-        CrossFadeHelper.fadeIn(this, currentState.alpha)
+        if (alpha != currentState.alpha ||
+                (visibility == View.INVISIBLE && currentState.alpha > 0.0f)) {
+            CrossFadeHelper.fadeIn(this, currentState.alpha)
+        }
+    }
+
+    private fun applyChildAlpha(child: View, widgetState: WidgetState) {
+        val targetVisibility =
+            if (widgetState.gone || widgetState.alpha == 0.0f) View.INVISIBLE else View.VISIBLE
+        if (targetVisibility == View.INVISIBLE) {
+            if (child.visibility != View.INVISIBLE || child.alpha != 0.0f) {
+                CrossFadeHelper.fadeOut(child, 1.0f, false)
+            }
+        } else if (child.visibility == View.INVISIBLE || child.alpha != widgetState.alpha) {
+            CrossFadeHelper.fadeIn(child, widgetState.alpha)
+        }
+        if (child.visibility != targetVisibility) {
+            child.visibility = targetVisibility
+        }
     }
 
     private fun applyCurrentStateOnPredraw() {

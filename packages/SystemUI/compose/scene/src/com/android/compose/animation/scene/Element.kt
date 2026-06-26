@@ -341,22 +341,28 @@ internal class ElementNode(
     }
 
     override fun isMeasurementApproachInProgress(lookaheadSize: IntSize): Boolean {
-        // TODO(b/324191441): Investigate whether making this check more complex (checking if this
-        // element is shared or transformed) would lead to better performance.
-        return isAnyStateTransitioning()
+        return isElementInUse()
     }
 
     override fun Placeable.PlacementScope.isPlacementApproachInProgress(
         lookaheadCoordinates: LayoutCoordinates
     ): Boolean {
-        // TODO(b/324191441): Investigate whether making this check more complex (checking if this
-        // element is shared or transformed) would lead to better performance.
-        return isAnyStateTransitioning()
+        return isElementInUse()
     }
 
-    private fun isAnyStateTransitioning(): Boolean {
-        return layoutImpl.state.isTransitioning() ||
-            layoutImpl.ancestors.fastAny { it.layoutImpl.state.isTransitioning() }
+    private fun isElementInUse(): Boolean {
+        if (element.lastTransition != null) {
+            return true
+        }
+
+        val stateByContent = element.stateByContent
+        return currentTransitionStates.fastAny { states ->
+            states.fastAny { state ->
+                state is TransitionState.Transition &&
+                    (isSharedElement(state, isInContent = { it in stateByContent }) ||
+                        hasTransformationForElement(state, key))
+            }
+        }
     }
 
     @ExperimentalComposeUiApi
@@ -756,7 +762,12 @@ private inline fun localElementState(
     // Find the last transition with a content that contains the element.
     states.fastForEachReversed { state ->
         val transition = state as TransitionState.Transition
-        if (isInContent(transition.fromContent) || isInContent(transition.toContent)) {
+        if (
+            isInContent(transition.fromContent) ||
+                isInContent(transition.toContent) ||
+                (transition is TransitionState.Transition.ReplaceOverlay &&
+                    isInContent(transition.currentScene))
+        ) {
             return transition
         }
     }
@@ -771,15 +782,28 @@ private inline fun isSharedElement(
     state: TransitionState,
     isInContent: (ContentKey) -> Boolean,
 ): Boolean {
-    return state is TransitionState.Transition &&
-        isInContent(state.fromContent) &&
-        isInContent(state.toContent)
+    if (state !is TransitionState.Transition) {
+        return false
+    }
+
+    var copies = 0
+    if (isInContent(state.fromContent)) copies++
+    if (isInContent(state.toContent)) copies++
+    if (state is TransitionState.Transition.ReplaceOverlay && isInContent(state.currentScene)) {
+        copies++
+    }
+    return copies > 1
 }
 
 private fun hasTransformationForElement(state: TransitionState, elementKey: ElementKey): Boolean {
-    return state is TransitionState.Transition &&
-        (state.transformationSpec.hasTransformation(elementKey, state.fromContent) ||
-            state.transformationSpec.hasTransformation(elementKey, state.toContent))
+    if (state !is TransitionState.Transition) {
+        return false
+    }
+
+    return state.transformationSpec.hasTransformation(elementKey, state.fromContent) ||
+        state.transformationSpec.hasTransformation(elementKey, state.toContent) ||
+        (state is TransitionState.Transition.ReplaceOverlay &&
+            state.transformationSpec.hasTransformation(elementKey, state.currentScene))
 }
 
 internal inline fun elementContentWhenIdle(
