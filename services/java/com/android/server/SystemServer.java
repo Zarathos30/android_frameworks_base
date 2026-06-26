@@ -1333,6 +1333,10 @@ public final class SystemServer implements Dumpable {
         mSystemServiceManager.startService(AxBurstEngineImpl.class);
         t.traceEnd();
 
+        t.traceBegin("StartAxPcModeService");
+        mSystemServiceManager.startService(AxPcModeService.class);
+        t.traceEnd();
+
         // Now that the power manager has been started, let the activity manager
         // initialize power management features.
         t.traceBegin("InitPowerManagement");
