@@ -20,6 +20,9 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.graphics.Shader.TileMode;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 import libcore.util.NativeAllocationRegistry;
 
 /**
@@ -32,6 +35,17 @@ import libcore.util.NativeAllocationRegistry;
  */
 @android.ravenwood.annotation.RavenwoodKeepWholeClass
 public final class RenderEffect {
+    private static final int MAX_BLUR_EFFECT_CACHE_SIZE = 64;
+    private static final Object sBlurEffectCacheLock = new Object();
+    private static final LinkedHashMap<BlurEffectKey, RenderEffect> sBlurEffectCache =
+            new LinkedHashMap<BlurEffectKey, RenderEffect>(
+                    MAX_BLUR_EFFECT_CACHE_SIZE, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(
+                        Map.Entry<BlurEffectKey, RenderEffect> eldest) {
+                    return size() > MAX_BLUR_EFFECT_CACHE_SIZE;
+                }
+            };
 
     private static class RenderEffectHolder {
         public static final NativeAllocationRegistry RENDER_EFFECT_REGISTRY =
@@ -114,14 +128,22 @@ public final class RenderEffect {
             float radiusY,
             @NonNull TileMode edgeTreatment
     ) {
-        return new RenderEffect(
-                nativeCreateBlurEffect(
-                        radiusX,
-                        radiusY,
-                        0,
-                        edgeTreatment.nativeInt
-                )
-            );
+        BlurEffectKey key = new BlurEffectKey(radiusX, radiusY, edgeTreatment.nativeInt);
+        synchronized (sBlurEffectCacheLock) {
+            RenderEffect effect = sBlurEffectCache.get(key);
+            if (effect == null) {
+                effect = new RenderEffect(
+                        nativeCreateBlurEffect(
+                                radiusX,
+                                radiusY,
+                                0,
+                                edgeTreatment.nativeInt
+                        )
+                    );
+                sBlurEffectCache.put(key, effect);
+            }
+            return effect;
+        }
     }
 
     /**
@@ -305,6 +327,40 @@ public final class RenderEffect {
         return new RenderEffect(
                 nativeCreateRuntimeShaderEffect(shader.getNativeShaderBuilder(),
                         uniformShaderName));
+    }
+
+    private static final class BlurEffectKey {
+        private final int mRadiusX;
+        private final int mRadiusY;
+        private final int mEdgeTreatment;
+
+        BlurEffectKey(float radiusX, float radiusY, int edgeTreatment) {
+            mRadiusX = Float.floatToIntBits(radiusX);
+            mRadiusY = Float.floatToIntBits(radiusY);
+            mEdgeTreatment = edgeTreatment;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) {
+                return true;
+            }
+            if (!(other instanceof BlurEffectKey)) {
+                return false;
+            }
+            BlurEffectKey key = (BlurEffectKey) other;
+            return mRadiusX == key.mRadiusX
+                    && mRadiusY == key.mRadiusY
+                    && mEdgeTreatment == key.mEdgeTreatment;
+        }
+
+        @Override
+        public int hashCode() {
+            int result = mRadiusX;
+            result = 31 * result + mRadiusY;
+            result = 31 * result + mEdgeTreatment;
+            return result;
+        }
     }
 
     private final long mNativeRenderEffect;
