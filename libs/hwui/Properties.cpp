@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cstdint>
 #include <optional>
 
 #include "Debug.h"
@@ -87,6 +88,14 @@ bool Properties::filterOutTestOverhead = false;
 bool Properties::disableVsync = false;
 bool Properties::skpCaptureEnabled = false;
 bool Properties::enableRTAnimations = true;
+float Properties::renderEffectLayerScale = 1.0f;
+float Properties::renderEffectLargeLayerScale = 1.0f;
+int Properties::renderEffectLargeLayerMinArea = 0;
+bool Properties::renderEffectTexturePrefetch = false;
+int Properties::renderEffectTexturePrefetchMinArea = 0;
+int Properties::renderEffectTexturePrefetchSubtreeMinArea = 0;
+float Properties::bitmapDecodeScale = 1.0f;
+int Properties::bitmapDecodeMinArea = 0;
 
 bool Properties::runningInEmulator = false;
 bool Properties::debuggingEnabled = false;
@@ -184,6 +193,46 @@ bool Properties::load() {
 
     clipSurfaceViews =
             base::GetBoolProperty("debug.hwui.clip_surfaceviews", hwui_flags::clip_surfaceviews());
+    renderEffectLayerScale =
+            (float)atof(base::GetProperty(PROPERTY_RENDER_EFFECT_LAYER_SCALE, "1").c_str());
+    if (renderEffectLayerScale <= 0.0f || renderEffectLayerScale > 1.0f) {
+        renderEffectLayerScale = 1.0f;
+    }
+    const std::string largeLayerScale =
+            base::GetProperty(PROPERTY_RENDER_EFFECT_LARGE_LAYER_SCALE, "");
+    renderEffectLargeLayerScale = largeLayerScale.empty()
+            ? renderEffectLayerScale : (float)atof(largeLayerScale.c_str());
+    if (renderEffectLargeLayerScale <= 0.0f ||
+            renderEffectLargeLayerScale > renderEffectLayerScale) {
+        renderEffectLargeLayerScale = renderEffectLayerScale;
+    }
+    renderEffectLargeLayerMinArea =
+            base::GetIntProperty(PROPERTY_RENDER_EFFECT_LARGE_LAYER_MIN_AREA, 0);
+    if (renderEffectLargeLayerMinArea < 0) {
+        renderEffectLargeLayerMinArea = 0;
+    }
+    renderEffectTexturePrefetch =
+            base::GetBoolProperty(PROPERTY_RENDER_EFFECT_TEXTURE_PREFETCH, false);
+    renderEffectTexturePrefetchMinArea =
+            base::GetIntProperty(PROPERTY_RENDER_EFFECT_TEXTURE_PREFETCH_MIN_AREA, 0);
+    if (renderEffectTexturePrefetchMinArea < 0) {
+        renderEffectTexturePrefetchMinArea = 0;
+    }
+    renderEffectTexturePrefetchSubtreeMinArea =
+            base::GetIntProperty(PROPERTY_RENDER_EFFECT_TEXTURE_PREFETCH_SUBTREE_MIN_AREA,
+                                 0);
+    if (renderEffectTexturePrefetchSubtreeMinArea < 0) {
+        renderEffectTexturePrefetchSubtreeMinArea = 0;
+    }
+    bitmapDecodeScale =
+            (float)atof(base::GetProperty(PROPERTY_BITMAP_DECODE_SCALE, "1").c_str());
+    if (bitmapDecodeScale < 0.5f || bitmapDecodeScale >= 1.0f) {
+        bitmapDecodeScale = 1.0f;
+    }
+    bitmapDecodeMinArea = base::GetIntProperty(PROPERTY_BITMAP_DECODE_MIN_AREA, 0);
+    if (bitmapDecodeMinArea < 0 || bitmapDecodeScale == 1.0f) {
+        bitmapDecodeMinArea = 0;
+    }
     hdr10bitPlus = hwui_flags::hdr_10bit_plus();
 
     timeoutMultiplier = android::base::GetIntProperty("ro.hw_timeout_multiplier", 1);
@@ -191,6 +240,25 @@ bool Properties::load() {
                                           hwui_flags::skip_eglmanager_telemetry());
 
     return (prevDebugLayersUpdates != debugLayersUpdates) || (prevDebugOverdraw != debugOverdraw);
+}
+
+float Properties::applyBitmapDecodeScale(int* width, int* height) {
+    if (width == nullptr || height == nullptr || *width <= 0 || *height <= 0) {
+        return 1.0f;
+    }
+
+    if (bitmapDecodeMinArea <= 0 || bitmapDecodeScale == 1.0f) {
+        return 1.0f;
+    }
+
+    const int64_t area = static_cast<int64_t>(*width) * *height;
+    if (area < bitmapDecodeMinArea) {
+        return 1.0f;
+    }
+
+    *width = std::max(1, static_cast<int>(*width * bitmapDecodeScale + 0.5f));
+    *height = std::max(1, static_cast<int>(*height * bitmapDecodeScale + 0.5f));
+    return bitmapDecodeScale;
 }
 
 void Properties::overrideProperty(const char* name, const char* value) {

@@ -18,6 +18,9 @@
 #define ANDROID_HWUI_PROPERTIES_H
 
 #include <cutils/compiler.h>
+#include <SkRefCnt.h>
+
+class SkImageFilter;
 
 /**
  * This file contains the list of system properties used to configure libhwui.
@@ -136,6 +139,15 @@ enum DebugLevel {
  * or Vulkan.
  */
 #define PROPERTY_RENDERER "debug.hwui.renderer"
+
+#define PROPERTY_RENDER_EFFECT_LAYER_SCALE "persist.sys.hwui.re_scale"
+#define PROPERTY_RENDER_EFFECT_LARGE_LAYER_SCALE "persist.sys.hwui.re_lscale"
+#define PROPERTY_RENDER_EFFECT_LARGE_LAYER_MIN_AREA "persist.sys.hwui.re_larea"
+#define PROPERTY_RENDER_EFFECT_TEXTURE_PREFETCH "persist.sys.hwui.re_prefetch"
+#define PROPERTY_RENDER_EFFECT_TEXTURE_PREFETCH_MIN_AREA "persist.sys.hwui.re_pf_area"
+#define PROPERTY_RENDER_EFFECT_TEXTURE_PREFETCH_SUBTREE_MIN_AREA "persist.sys.hwui.re_pf_sarea"
+#define PROPERTY_BITMAP_DECODE_SCALE "persist.sys.hwui.bmp_scale"
+#define PROPERTY_BITMAP_DECODE_MIN_AREA "persist.sys.hwui.bmp_area"
 
 /**
  * Allows to collect a recording of Skia drawing commands.
@@ -328,6 +340,15 @@ public:
 
     // For experimentation b/68769804
     static bool enableRTAnimations;
+    static float renderEffectLayerScale;
+    static float renderEffectLargeLayerScale;
+    static int renderEffectLargeLayerMinArea;
+    static bool renderEffectTexturePrefetch;
+    static int renderEffectTexturePrefetchMinArea;
+    static int renderEffectTexturePrefetchSubtreeMinArea;
+    static float bitmapDecodeScale;
+    static int bitmapDecodeMinArea;
+    static float applyBitmapDecodeScale(int* width, int* height);
 
     // Used for testing only to change the render pipeline.
     static void overrideRenderPipelineType(RenderPipelineType);
@@ -402,6 +423,9 @@ private:
     static bool sDisableProfileBars;
     static RenderPipelineType sRenderPipelineType;
 };  // class Caches
+
+bool isLayerScaledBlurRenderEffect(const SkImageFilter* filter);
+sk_sp<SkImageFilter> makeLayerScaledBlurRenderEffect(const SkImageFilter* filter, float layerScale);
 
 }  // namespace uirenderer
 }  // namespace android
