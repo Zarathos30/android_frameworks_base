@@ -127,6 +127,7 @@ import com.android.server.adb.AdbService;
 import com.android.server.alarm.AlarmManagerService;
 import com.android.server.am.ActivityManagerService;
 import com.android.server.am.AxBurstEngineImpl;
+import com.android.server.am.AxMemoryManagerImpl;
 import com.android.server.am.OmniJawsClientService;
 import com.android.server.ambientcontext.AmbientContextManagerService;
 import com.android.server.app.GameManagerService;
@@ -1315,6 +1316,11 @@ public final class SystemServer implements Dumpable {
 
         t.traceBegin("StartAxAdvancedThermalMitigation");
         mSystemServiceManager.startService(AxAdvancedThermalMitigationService.class);
+        t.traceEnd();
+
+        t.traceBegin("StartAxMemoryManager");
+        mSystemServiceManager.startService(new AxMemoryManagerImpl(mSystemContext,
+                mActivityManagerService));
         t.traceEnd();
 
         t.traceBegin("StartAxFrameRescue");

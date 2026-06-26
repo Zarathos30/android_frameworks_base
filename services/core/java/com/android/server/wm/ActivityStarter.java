@@ -144,6 +144,7 @@ import com.android.server.LocalServices;
 import com.android.server.UiThread;
 import com.android.server.am.ActivityManagerService.IntentCreatorToken;
 import com.android.server.am.AxBurstEngineImpl;
+import com.android.server.am.IAxMemoryManager;
 import com.android.server.am.PendingIntentRecord;
 import com.android.server.pm.InstantAppResolver;
 import com.android.server.pm.PackageArchiver;
@@ -1117,6 +1118,9 @@ class ActivityStarter {
                 request.logMessage.append(" (realCallingUid=").append(realCallingUid).append(")");
             }
         }
+        if (err == ActivityManager.START_SUCCESS) {
+            boostCameraWarmStartIfNeeded(intent, aInfo);
+        }
 
         ActivityRecord sourceRecord = null;
         ActivityRecord resultRecord = null;
@@ -1610,6 +1614,30 @@ class ActivityStarter {
         }
         // Aborted results are treated as successes externally, but we must track them internally.
         return result != START_ABORTED ? result : START_SUCCESS;
+    }
+
+    private void boostCameraWarmStartIfNeeded(Intent intent, ActivityInfo info) {
+        IAxMemoryManager memoryManager = LocalServices.getService(IAxMemoryManager.class);
+        if (memoryManager == null) {
+            return;
+        }
+        if (info != null && (memoryManager.isCameraProcess(info.packageName)
+                || memoryManager.isCameraProcess(info.processName)
+                || (info.applicationInfo != null
+                        && memoryManager.isCameraProcess(info.applicationInfo.packageName)))) {
+            memoryManager.boostCamera(false);
+            return;
+        }
+        if (intent == null) {
+            return;
+        }
+        String packageName = intent.getPackage();
+        if (intent.getComponent() != null) {
+            packageName = intent.getComponent().getPackageName();
+        }
+        if (memoryManager.isCameraProcess(packageName)) {
+            memoryManager.boostCamera(false);
+        }
     }
 
     /**

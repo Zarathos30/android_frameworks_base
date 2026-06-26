@@ -1078,4 +1078,7 @@ interface IActivityManager {
     oneway void onUiAnimationPrepared(long durationMs);
     oneway void onUiAnimationStarted(long durationMs);
     oneway void onUiAnimationFinished();
+
+    void releaseMemory(int minAdj, int maxKillCount, boolean includeUiProcesses,
+            boolean skipCamera);
 }

@@ -47,6 +47,7 @@
 #include <utils/Trace.h>
 
 #include <algorithm>
+#include <array>
 #include <optional>
 
 using android::base::StringPrintf;
@@ -59,6 +60,7 @@ static const size_t kPageMask = ~(kPageSize - 1);
 
 #define COMPACT_ACTION_FILE_FLAG 1
 #define COMPACT_ACTION_ANON_FLAG 2
+#define COMPACT_ACTION_POPULATE_FLAG 0x4
 
 using VmaToAdviseFunc = std::function<int(const Vma&)>;
 using android::base::unique_fd;
@@ -340,6 +342,13 @@ static int getAnyPageAdvice(const Vma& vma) {
     return MADV_COLD;
 }
 
+static int getPopulatePageAdvice(const Vma& vma) {
+    if (vma.inode == 0 && !vma.is_shared) {
+        return MADV_WILLNEED;
+    }
+    return -1;
+}
+
 // Perform a full process compaction using process_madvise syscall
 // using the madvise behavior defined by vmaToAdviseFunc per VMA.
 //
@@ -356,10 +365,12 @@ static int64_t compactProcess(int pid, VmaToAdviseFunc vmaToAdviseFunc) {
     static std::string mapsBuffer;
     ATRACE_BEGIN("CollectVmas");
     ProcMemInfo meminfo(pid);
-    static std::vector<Vma> pageoutVmas(2000), coldVmas(2000);
+    static std::vector<Vma> pageoutVmas(2000), coldVmas(2000), populateVmas(2000);
     int coldVmaIndex = 0;
     int pageoutVmaIndex = 0;
-    auto vmaCollectorCb = [&vmaToAdviseFunc, &pageoutVmaIndex, &coldVmaIndex](const Vma& vma) {
+    int populateVmaIndex = 0;
+    auto vmaCollectorCb = [&vmaToAdviseFunc, &pageoutVmaIndex, &coldVmaIndex,
+                           &populateVmaIndex](const Vma& vma) {
         int advice = vmaToAdviseFunc(vma);
         switch (advice) {
             case MADV_COLD:
@@ -381,14 +392,22 @@ static int64_t compactProcess(int pid, VmaToAdviseFunc vmaToAdviseFunc) {
                 }
                 ++pageoutVmaIndex;
                 break;
+            case MADV_WILLNEED:
+                if (populateVmaIndex < populateVmas.size()) {
+                    populateVmas[populateVmaIndex] = vma;
+                } else {
+                    populateVmas.push_back(vma);
+                }
+                ++populateVmaIndex;
+                break;
         }
         return true;
     };
     meminfo.ForEachVmaFromMaps(vmaCollectorCb, mapsBuffer);
     ATRACE_END();
 #ifdef DEBUG_COMPACTION
-    ALOGE("Total VMAs sent for compaction anon=%d file=%d", pageoutVmaIndex,
-            coldVmaIndex);
+    ALOGE("Total VMAs sent for compaction anon=%d file=%d populate=%d", pageoutVmaIndex,
+            coldVmaIndex, populateVmaIndex);
 #endif
 
     int64_t pageoutBytes = compactMemory(pageoutVmas, pid, MADV_PAGEOUT, pageoutVmaIndex);
@@ -405,19 +424,29 @@ static int64_t compactProcess(int pid, VmaToAdviseFunc vmaToAdviseFunc) {
         return coldBytes;
     }
 
-    return pageoutBytes + coldBytes;
+    int64_t populateBytes = compactMemory(populateVmas, pid, MADV_WILLNEED, populateVmaIndex);
+    if (populateBytes < 0) {
+        cancelRunningCompaction.store(false);
+        return populateBytes;
+    }
+
+    return pageoutBytes + coldBytes + populateBytes;
 }
 
 // Compact process using process_madvise syscall
 static void compactProcess(int pid, int compactionFlags) {
-    if ((compactionFlags & (COMPACT_ACTION_ANON_FLAG | COMPACT_ACTION_FILE_FLAG)) == 0) return;
+    if ((compactionFlags & (COMPACT_ACTION_ANON_FLAG | COMPACT_ACTION_FILE_FLAG
+            | COMPACT_ACTION_POPULATE_FLAG)) == 0) return;
 
     bool compactAnon = compactionFlags & COMPACT_ACTION_ANON_FLAG;
     bool compactFile = compactionFlags & COMPACT_ACTION_FILE_FLAG;
+    bool compactPopulate = compactionFlags & COMPACT_ACTION_POPULATE_FLAG;
 
     VmaToAdviseFunc vmaToAdviseFunc;
 
-    if (compactAnon) {
+    if (compactPopulate) {
+        vmaToAdviseFunc = getPopulatePageAdvice;
+    } else if (compactAnon) {
         if (compactFile) {
             vmaToAdviseFunc = getAnyPageAdvice;
         } else {
@@ -536,7 +565,7 @@ static void com_android_server_am_CachedAppOptimizer_compactNativeProcess(JNIEnv
 
 static jboolean com_android_server_am_CachedAppOptimizer_compactionFlagsValidForMemcg(
         JNIEnv* env, jobject, jint compactionFlags) {
-    static std::array<std::optional<bool>, 3> valid;
+    static std::array<std::optional<bool>, 8> valid;
 
     if (compactionFlags >= valid.size() || compactionFlags < 0) {
         jniThrowException(env, "java/lang/IllegalArgumentException", "Invalid compaction flags");
@@ -544,6 +573,10 @@ static jboolean com_android_server_am_CachedAppOptimizer_compactionFlagsValidFor
     }
 
     if (!valid[compactionFlags]) {
+        if ((compactionFlags & COMPACT_ACTION_POPULATE_FLAG) != 0) {
+            valid[compactionFlags] = false;
+            return false;
+        }
         std::string profile = profileFromCompactionFlags(compactionFlags);
         if (profile.empty()) {
             valid[compactionFlags] = true; // NONE is a no-op

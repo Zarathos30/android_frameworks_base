@@ -341,6 +341,7 @@ import com.android.modules.utils.TypedXmlPullParser;
 import com.android.modules.utils.TypedXmlSerializer;
 import com.android.server.LocalServices;
 import com.android.server.am.AppTimeTracker;
+import com.android.server.am.IAxMemoryManager;
 import com.android.server.am.PendingIntentRecord;
 import com.android.server.contentcapture.ContentCaptureManagerInternal;
 import com.android.server.display.color.ColorDisplayService;
@@ -6263,6 +6264,7 @@ final class ActivityRecord extends WindowToken {
         mTaskSupervisor.scheduleIdleTimeout(this);
 
         mTaskSupervisor.mStoppingActivities.remove(this);
+        updateAxMemoryOnResume();
         if (getDisplayArea().allResumedActivitiesComplete()) {
             // Construct the compat environment at a relatively stable state if needed.
             mAppCompatController.getSizeCompatModePolicy().updateAppCompatDisplayInsets();
@@ -6282,6 +6284,15 @@ final class ActivityRecord extends WindowToken {
             // pause and then resume again later, which will result in a double life-cycle event.
             rootTask.checkReadyForSleep();
         }
+    }
+
+    private void updateAxMemoryOnResume() {
+        IAxMemoryManager memoryManager = LocalServices.getService(IAxMemoryManager.class);
+        if (memoryManager == null) {
+            return;
+        }
+        memoryManager.releaseMemoryAtScreenOn();
+        memoryManager.loadProcessMemory("com.android.launcher3");
     }
 
     void activityPaused(boolean timeout) {

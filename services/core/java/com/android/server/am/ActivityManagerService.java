@@ -17763,6 +17763,12 @@ public class ActivityManagerService extends IActivityManager.Stub
         public void startProcess(String processName, ApplicationInfo info, boolean knownToBeDead,
                 boolean isTop, String hostingType, ComponentName hostingName) {
             try {
+                IAxMemoryManager memoryManager =
+                        LocalServices.getService(IAxMemoryManager.class);
+                if (memoryManager != null && (memoryManager.isCameraProcess(processName)
+                        || (info != null && memoryManager.isCameraProcess(info.packageName)))) {
+                    memoryManager.boostCamera(true);
+                }
                 if (Trace.isTagEnabled(Trace.TRACE_TAG_ACTIVITY_MANAGER)) {
                     Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "startProcess:"
                             + processName);
@@ -20113,6 +20119,15 @@ public class ActivityManagerService extends IActivityManager.Stub
         final AxBurstEngineImpl engine = LocalServices.getService(AxBurstEngineImpl.class);
         if (engine != null) {
             engine.onUiAnimationFinished(pid);
+        }
+    }
+
+    @Override
+    public void releaseMemory(int minAdj, int maxKillCount, boolean includeUiProcesses,
+            boolean skipCamera) {
+        IAxMemoryManager memoryManager = LocalServices.getService(IAxMemoryManager.class);
+        if (memoryManager != null) {
+            memoryManager.releaseMemory(minAdj, maxKillCount, includeUiProcesses, skipCamera);
         }
     }
 

@@ -24,8 +24,10 @@ class AggregatedCompactionStats {
     // Throttling stats
     public long mFullCompactRequested;
     public long mSomeCompactRequested;
+    public long mPopulateCompactRequested;
     public long mFullCompactPerformed;
     public long mSomeCompactPerformed;
+    public long mPopulateCompactPerformed;
     public long mProcCompactionsNoPidThrottled;
     public long mProcCompactionsOomAdjThrottled;
     public long mProcCompactionsTimeThrottled;
@@ -47,6 +49,10 @@ class AggregatedCompactionStats {
 
     public long getThrottledFull() { return mFullCompactRequested - mFullCompactPerformed; }
 
+    public long getThrottledPopulate() {
+        return mPopulateCompactRequested - mPopulateCompactPerformed;
+    }
+
     public void addMemStats(long anonRssSaved, long zramConsumed, long memFreed,
             long origAnonRss, long totalCpuTimeMillis) {
         final double compactEfficiency = memFreed / (double) origAnonRss;
@@ -66,18 +72,24 @@ class AggregatedCompactionStats {
 
     @NeverCompile
     public void dump(PrintWriter pw) {
-        long totalCompactRequested = mSomeCompactRequested + mFullCompactRequested;
-        long totalCompactPerformed = mSomeCompactPerformed + mFullCompactPerformed;
+        long totalCompactRequested = mSomeCompactRequested + mFullCompactRequested
+                + mPopulateCompactRequested;
+        long totalCompactPerformed = mSomeCompactPerformed + mFullCompactPerformed
+                + mPopulateCompactPerformed;
         pw.println("    Performed / Requested:");
         pw.println("      Some: (" + mSomeCompactPerformed + "/" + mSomeCompactRequested + ")");
         pw.println("      Full: (" + mFullCompactPerformed + "/" + mFullCompactRequested + ")");
+        pw.println("      Populate: (" + mPopulateCompactPerformed + "/"
+                + mPopulateCompactRequested + ")");
 
         long throttledSome = getThrottledSome();
         long throttledFull = getThrottledFull();
+        long throttledPopulate = getThrottledPopulate();
 
-        if (throttledSome > 0 || throttledFull > 0) {
+        if (throttledSome > 0 || throttledFull > 0 || throttledPopulate > 0) {
             pw.println("    Throttled:");
-            pw.println("       Some: " + throttledSome + " Full: " + throttledFull);
+            pw.println("       Some: " + throttledSome + " Full: " + throttledFull
+                    + " Populate: " + throttledPopulate);
             pw.println("    Throttled by Type:");
             final long compactionsThrottled = totalCompactRequested - totalCompactPerformed;
             // Any throttle that was not part of the previous categories

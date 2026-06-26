@@ -259,6 +259,7 @@ import com.android.server.GestureLauncherService;
 import com.android.server.LocalServices;
 import com.android.server.SystemServiceManager;
 import com.android.server.UiThread;
+import com.android.server.am.IAxMemoryManager;
 import com.android.server.input.InputManagerInternal;
 import com.android.server.inputmethod.InputMethodManagerInternal;
 import com.android.server.pm.UserManagerInternal;
@@ -6249,6 +6250,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         }
 
         EventLogTags.writeScreenToggled(1);
+        updateAxMemoryOnWake();
 
         mIsGoingToSleep = false;
         setPendingWakingUpGroup(displayGroupId);
@@ -6269,6 +6271,16 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         }
 
         mPowerButtonLaunchGestureTriggered = false;
+    }
+
+    private void updateAxMemoryOnWake() {
+        IAxMemoryManager memoryManager = LocalServices.getService(IAxMemoryManager.class);
+        if (memoryManager == null) {
+            return;
+        }
+        memoryManager.releaseMemoryAtScreenOn();
+        memoryManager.loadProcessMemory("com.android.systemui");
+        memoryManager.loadProcessMemory("com.android.launcher3");
     }
 
     // Called on the PowerManager's Notifier thread.

@@ -1113,25 +1113,8 @@ public final class ProcessList implements ProcessStateController.ProcessLruUpdat
         // before killing background processes.
         mCachedRestoreLevel = (getMemLevel(ProcessList.CACHED_APP_MAX_ADJ) / 1024) / 3;
 
-        // Ask the kernel to try to keep enough memory free to allocate 3 full
+        // Ask the kernel to try to keep enough memory free to allocate 6 full
         // screen 32bpp buffers without entering direct reclaim.
-        int reserve = displayWidth * displayHeight * 4 * 3 / 1024;
-        int reserve_adj = Resources.getSystem().getInteger(
-                com.android.internal.R.integer.config_extraFreeKbytesAdjust);
-        int reserve_abs = Resources.getSystem().getInteger(
-                com.android.internal.R.integer.config_extraFreeKbytesAbsolute);
-
-        if (reserve_abs >= 0) {
-            reserve = reserve_abs;
-        }
-
-        if (reserve_adj != 0) {
-            reserve += reserve_adj;
-            if (reserve < 0) {
-                reserve = 0;
-            }
-        }
-
         if (write) {
             ByteBuffer buf = ByteBuffer.allocate(4 * (2 * mOomAdj.length + 1));
             buf.putInt(LMK_TARGET);
@@ -1141,11 +1124,22 @@ public final class ProcessList implements ProcessStateController.ProcessLruUpdat
             }
 
             writeLmkd(buf, null);
-            SystemProperties.set("sys.sysctl.extra_free_kbytes", Integer.toString(reserve));
+            tuneExtraFreeKbytes(displayWidth, displayHeight);
             mOomLevelsSet = true;
         }
         // GB: 2048,3072,4096,6144,7168,8192
         // HC: 8192,10240,12288,14336,16384,20480
+    }
+
+    private static void tuneExtraFreeKbytes(int displayWidth, int displayHeight) {
+        IAxMemoryManager memoryManager = LocalServices.getService(IAxMemoryManager.class);
+        if (memoryManager != null) {
+            memoryManager.tuneExtraFreeKbytes(displayWidth, displayHeight);
+            return;
+        }
+        SystemProperties.set("sys.sysctl.extra_free_kbytes",
+                Integer.toString(AxMemoryManagerImpl.calculateExtraFreeKbytes(
+                        displayWidth, displayHeight)));
     }
 
     public static int computeEmptyProcessLimit(int totalProcessLimit) {
