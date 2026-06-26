@@ -21,6 +21,7 @@
 #include <SkPicture.h>
 #include <gui/TraceUtils.h>
 #include <pthread.h>
+
 #include "utils/Thread.h"
 
 #ifdef __ANDROID__
@@ -484,8 +485,9 @@ int RenderProxy::copyHWBitmapInto(Bitmap* hwBitmap, SkBitmap* bitmap) {
         // TODO: fix everything that hits this. We should never be triggering a readback ourselves.
         return (int)thread.readback().copyHWBitmapInto(hwBitmap, bitmap);
     } else {
-        return thread.queue().runSync(
-                [&]() -> int { return (int)thread.readback().copyHWBitmapInto(hwBitmap, bitmap); });
+        return thread.queue().runSync([&]() -> int {
+            return (int)thread.readback().copyHWBitmapInto(hwBitmap, bitmap);
+        });
     }
 }
 
@@ -496,8 +498,9 @@ int RenderProxy::copyImageInto(const sk_sp<SkImage>& image, SkBitmap* bitmap) {
         // TODO: fix everything that hits this. We should never be triggering a readback ourselves.
         return (int)thread.readback().copyImageInto(image, bitmap);
     } else {
-        return thread.queue().runSync(
-                [&]() -> int { return (int)thread.readback().copyImageInto(image, bitmap); });
+        return thread.queue().runSync([&]() -> int {
+            return (int)thread.readback().copyImageInto(image, bitmap);
+        });
     }
 }
 

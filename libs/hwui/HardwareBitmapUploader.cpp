@@ -34,8 +34,6 @@
 #include <utils/NdkUtils.h>
 #include <utils/Trace.h>
 
-#include <thread>
-
 #include "hwui/Bitmap.h"
 #include "renderthread/EglManager.h"
 #include "renderthread/VulkanManager.h"

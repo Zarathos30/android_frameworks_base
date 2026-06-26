@@ -46,6 +46,7 @@
 #include "Gainmap.h"
 #include "GraphicsJNI.h"
 #include "NinePatchPeeker.h"
+#include "Properties.h"
 #include "Utils.h"
 
 using namespace android;
@@ -257,7 +258,13 @@ static jobject ImageDecoder_nDecodeBitmap(JNIEnv* env, jobject /*clazz*/, jlong 
                                           jboolean extended) {
     ATRACE_CALL();
     auto* decoder = reinterpret_cast<ImageDecoder*>(nativePtr);
-    if (!decoder->setTargetSize(targetWidth, targetHeight)) {
+    int outputWidth = targetWidth;
+    int outputHeight = targetHeight;
+    if (!jpostProcess && !jsubset && !requireMutable && !requireUnpremul && !asAlphaMask &&
+            !decoder->isAnimated()) {
+        uirenderer::Properties::applyBitmapDecodeScale(&outputWidth, &outputHeight);
+    }
+    if (!decoder->setTargetSize(outputWidth, outputHeight)) {
         doThrowISE(env, "Could not scale to target size!");
         return nullptr;
     }

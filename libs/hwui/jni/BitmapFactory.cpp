@@ -19,6 +19,7 @@
 #include "GraphicsJNI.h"
 #include "MimeType.h"
 #include "NinePatchPeeker.h"
+#include "Properties.h"
 #include "SkAndroidCodec.h"
 #include "SkBitmap.h"
 #include "SkBlendMode.h"
@@ -443,6 +444,15 @@ static jobject doDecode(JNIEnv* env, std::unique_ptr<SkStreamRewindable> stream,
         willScale = true;
         scaledWidth = static_cast<int>(scaledWidth * scale + 0.5f);
         scaledHeight = static_cast<int>(scaledHeight * scale + 0.5f);
+    }
+
+    if (javaBitmap == nullptr && peeker.mPatch == nullptr) {
+        const float bitmapDecodeScale =
+                uirenderer::Properties::applyBitmapDecodeScale(&scaledWidth, &scaledHeight);
+        if (bitmapDecodeScale != 1.0f) {
+            willScale = true;
+            scale *= bitmapDecodeScale;
+        }
     }
 
     android::Bitmap* reuseBitmap = nullptr;
