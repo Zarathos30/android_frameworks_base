@@ -129,6 +129,7 @@ import com.android.server.am.ActivityManagerService;
 import com.android.server.am.AxBurstEngineImpl;
 import com.android.server.am.AxMemoryManagerImpl;
 import com.android.server.am.OmniJawsClientService;
+import com.android.server.am.PulseEngine;
 import com.android.server.ambientcontext.AmbientContextManagerService;
 import com.android.server.app.GameManagerService;
 import com.android.server.appbinding.AppBindingService;
@@ -1284,6 +1285,10 @@ public final class SystemServer implements Dumpable {
         LocalServices.addService(AppOpMigrationHelper.class,
                 new AppOpMigrationHelperImpl());
         mSystemServiceManager.startService(AccessCheckingService.class);
+        t.traceEnd();
+
+        t.traceBegin("StartPulseEngine");
+        mSystemServiceManager.startService(PulseEngine.class);
         t.traceEnd();
 
         // Activity manager runs the show.

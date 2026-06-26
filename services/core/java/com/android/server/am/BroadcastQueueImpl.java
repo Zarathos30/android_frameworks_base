@@ -202,6 +202,9 @@ class BroadcastQueueImpl extends BroadcastQueue {
     @GuardedBy("mService")
     private @Nullable BroadcastProcessQueue mRunningColdStart;
 
+    @GuardedBy("mService")
+    private long mPulseEngineBroadcastDeferralStartTime;
+
     /**
      * Indicates whether we have queued a message to check pending cold start validity.
      */
@@ -497,6 +500,14 @@ class BroadcastQueueImpl extends BroadcastQueue {
                 break;
             }
 
+            if (!waitingFor && shouldDeferBroadcastQueueForPulseEngine(queue, now)) {
+                mLocalHandler.removeMessages(MSG_UPDATE_RUNNING_LIST);
+                mLocalHandler.sendEmptyMessageDelayed(MSG_UPDATE_RUNNING_LIST,
+                        mService.getPulseEngine().getElasticWorkDelayMillis());
+                queue = nextQueue;
+                continue;
+            }
+
             // Clear the deferred state of broadcasts in this queue as we are just about to
             // deliver broadcasts to this process.
             queue.clearDeferredStates(mBroadcastConsumerDeferClear);
@@ -574,6 +585,59 @@ class BroadcastQueueImpl extends BroadcastQueue {
         checkAndRemoveWaitingFor();
 
         traceEnd(cookie);
+    }
+
+    @GuardedBy("mService")
+    private boolean shouldDeferBroadcastQueueForPulseEngine(@NonNull BroadcastProcessQueue queue,
+            long now) {
+        final BroadcastRecord record = queue.peekNextBroadcastRecord();
+        if (record == null || !isPulseEngineDeferrableBroadcast(record)) {
+            mPulseEngineBroadcastDeferralStartTime = 0L;
+            return false;
+        }
+        final PulseEngine pulseEngine = mService.getPulseEngine();
+        if (!pulseEngine.shouldDeferBroadcast(getPulseEngineBroadcastUid(record),
+                getPulseEngineBroadcastPackage(record))) {
+            mPulseEngineBroadcastDeferralStartTime = 0L;
+            return false;
+        }
+        if (mPulseEngineBroadcastDeferralStartTime == 0L) {
+            mPulseEngineBroadcastDeferralStartTime = now;
+        }
+        if (now - mPulseEngineBroadcastDeferralStartTime
+                >= pulseEngine.getMaxElasticWorkDeferralMillis()) {
+            mPulseEngineBroadcastDeferralStartTime = 0L;
+            return false;
+        }
+        return true;
+    }
+
+    private static int getPulseEngineBroadcastUid(@NonNull BroadcastRecord record) {
+        final int index = record.nextReceiver;
+        if (index >= 0 && index < record.receivers.size()) {
+            return getReceiverUid(record.receivers.get(index));
+        }
+        return record.callingUid;
+    }
+
+    private static String getPulseEngineBroadcastPackage(@NonNull BroadcastRecord record) {
+        final int index = record.nextReceiver;
+        if (index >= 0 && index < record.receivers.size()) {
+            return getReceiverPackageName(record.receivers.get(index));
+        }
+        return record.callerPackage;
+    }
+
+    private static boolean isPulseEngineDeferrableBroadcast(@NonNull BroadcastRecord record) {
+        return !record.isForeground()
+                && !record.isUrgent()
+                && !record.ordered
+                && !record.alarm
+                && !record.pushMessage
+                && !record.pushMessageOverQuota
+                && !record.interactive
+                && !record.prioritized
+                && record.resultTo == null;
     }
 
     @GuardedBy("mService")

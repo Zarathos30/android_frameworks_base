@@ -66,6 +66,7 @@ import static android.app.ActivityManagerInternal.OOM_ADJ_REASON_UNBIND_SERVICE;
 import static android.os.Process.THREAD_GROUP_BACKGROUND;
 import static android.os.Process.THREAD_GROUP_DEFAULT;
 import static android.os.Process.THREAD_GROUP_FOREGROUND_WINDOW;
+import static android.os.Process.THREAD_GROUP_L_BACKGROUND;
 import static android.os.Process.THREAD_GROUP_RESTRICTED;
 import static android.os.Process.THREAD_GROUP_TOP_APP;
 import static android.os.Process.THREAD_PRIORITY_DISPLAY;
@@ -2139,6 +2140,11 @@ public abstract class OomAdjuster {
                 reportOomAdjMessageLocked(TAG_OOM_ADJ, msg);
             }
             int processGroup = AxBurstEngineImpl.mapProcessGroup(state, curSchedGroup);
+            if (curSchedGroup == SCHED_GROUP_BACKGROUND
+                    && mService.getPulseEngine().shouldDemoteBackgroundProcess(state.uid,
+                            state.processName)) {
+                processGroup = THREAD_GROUP_L_BACKGROUND;
+            }
             setAppAndChildProcessGroup(state, processGroup);
             try {
                 final int renderThreadTid = state.getRenderThreadTid();

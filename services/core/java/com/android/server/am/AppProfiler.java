@@ -199,6 +199,12 @@ public class AppProfiler {
      */
     private final AtomicInteger mActivityStartingNesting = new AtomicInteger(0);
 
+    @GuardedBy("mProfilerLock")
+    private long mPulseEnginePssDeferralStartTime;
+
+    @GuardedBy("mProfilerLock")
+    private long mPulseEngineAppGcDeferralStartTime;
+
     /**
      * Last time we requested PSS data of all processes.
      */
@@ -609,6 +615,15 @@ public class AppProfiler {
 
     private void collectPssInBackground() {
         long start = SystemClock.uptimeMillis();
+        synchronized (mProfilerLock) {
+            if (mPendingPssOrRssProfiles.size() > 0) {
+                final long deferral = getPulseEnginePssDelayLPf(start);
+                if (deferral > 0) {
+                    mBgHandler.sendEmptyMessageDelayed(BgHandler.COLLECT_PSS_BG_MSG, deferral);
+                    return;
+                }
+            }
+        }
         MemInfoReader memInfo = null;
         synchronized (mProfilerLock) {
             if (mFullPssOrRssPending) {
@@ -743,6 +758,15 @@ public class AppProfiler {
     // technically necessary. These can be updated once the flag is completely rolled out.
     private void collectRssInBackground() {
         long start = SystemClock.uptimeMillis();
+        synchronized (mProfilerLock) {
+            if (mPendingPssOrRssProfiles.size() > 0) {
+                final long deferral = getPulseEnginePssDelayLPf(start);
+                if (deferral > 0) {
+                    mBgHandler.sendEmptyMessageDelayed(BgHandler.COLLECT_PSS_BG_MSG, deferral);
+                    return;
+                }
+            }
+        }
         MemInfoReader memInfo = null;
         synchronized (mProfilerLock) {
             if (mFullPssOrRssPending) {
@@ -1183,8 +1207,7 @@ public class AppProfiler {
             return false;
         }
         if (mPendingPssOrRssProfiles.size() == 0) {
-            final long deferral = (mPssDeferralTime > 0 && mActivityStartingNesting.get() > 0)
-                    ? mPssDeferralTime : 0;
+            final long deferral = getPulseEnginePssDelayLPf(SystemClock.uptimeMillis());
             if (DEBUG_PSS && deferral > 0) {
                 Slog.d(TAG_PSS, "requestPssLPf() deferring PSS request by "
                         + deferral + " ms");
@@ -1203,23 +1226,28 @@ public class AppProfiler {
      * currently active policy when called.
      */
     @GuardedBy("mProfilerLock")
-    private void deferPssIfNeededLPf() {
+    private void deferPssIfNeededLPf(long deferral) {
         if (mPendingPssOrRssProfiles.size() > 0) {
             mBgHandler.removeMessages(BgHandler.COLLECT_PSS_BG_MSG);
-            mBgHandler.sendEmptyMessageDelayed(BgHandler.COLLECT_PSS_BG_MSG, mPssDeferralTime);
+            mBgHandler.sendEmptyMessageDelayed(BgHandler.COLLECT_PSS_BG_MSG, deferral);
         }
     }
 
     private void deferPssForActivityStart() {
-        if (mPssDeferralTime > 0) {
+        final long deferral;
+        synchronized (mProfilerLock) {
+            deferral = Math.max(mPssDeferralTime,
+                    getPulseEnginePssDelayLPf(SystemClock.uptimeMillis()));
+            if (deferral > 0) {
+                deferPssIfNeededLPf(deferral);
+            }
+        }
+        if (deferral > 0) {
             if (DEBUG_PSS) {
                 Slog.d(TAG_PSS, "Deferring PSS collection for activity start");
             }
-            synchronized (mProfilerLock) {
-                deferPssIfNeededLPf();
-            }
             mActivityStartingNesting.getAndIncrement();
-            mBgHandler.sendEmptyMessageDelayed(BgHandler.STOP_DEFERRING_PSS_MSG, mPssDeferralTime);
+            mBgHandler.sendEmptyMessageDelayed(BgHandler.STOP_DEFERRING_PSS_MSG, deferral);
         }
     }
 
@@ -1239,6 +1267,27 @@ public class AppProfiler {
                 Slog.d(TAG_PSS, "Still deferring PSS, nesting=" + nesting);
             }
         }
+    }
+
+    @GuardedBy("mProfilerLock")
+    private long getPulseEnginePssDelayLPf(long now) {
+        long deferral = (mPssDeferralTime > 0 && mActivityStartingNesting.get() > 0)
+                ? mPssDeferralTime : 0L;
+        final PulseEngine pulseEngine = mService.getPulseEngine();
+        if (pulseEngine.shouldDeferProcessPss()) {
+            if (mPulseEnginePssDeferralStartTime == 0L) {
+                mPulseEnginePssDeferralStartTime = now;
+            }
+            if (now - mPulseEnginePssDeferralStartTime
+                    < pulseEngine.getMaxElasticWorkDeferralMillis()) {
+                deferral = Math.max(deferral, pulseEngine.getElasticWorkDelayMillis());
+            } else {
+                mPulseEnginePssDeferralStartTime = 0L;
+            }
+        } else {
+            mPulseEnginePssDeferralStartTime = 0L;
+        }
+        return deferral;
     }
 
     /**
@@ -1282,7 +1331,8 @@ public class AppProfiler {
                 }
             });
             if (!mBgHandler.hasMessages(BgHandler.COLLECT_PSS_BG_MSG)) {
-                mBgHandler.sendEmptyMessage(BgHandler.COLLECT_PSS_BG_MSG);
+                final long deferral = getPulseEnginePssDelayLPf(now);
+                mBgHandler.sendEmptyMessageDelayed(BgHandler.COLLECT_PSS_BG_MSG, deferral);
             }
         }
     }
@@ -1397,6 +1447,10 @@ public class AppProfiler {
         mService.mProcessStateController.setIsLastMemoryLevelNormal(isLastMemoryLevelNormal());
         mLastNumProcesses = mService.mProcessList.getLruSizeLOSP();
 
+        if (mService.getPulseEngine().shouldDeferTrimMemory()) {
+            return;
+        }
+
         // Dispatch UI_HIDDEN to processes that need it
         mService.mProcessList.forEachLruProcessesLOSP(
                 true,
@@ -1440,6 +1494,9 @@ public class AppProfiler {
 
     @GuardedBy({"mService", "mProcLock"})
     private void scheduleTrimMemoryLSP(ProcessRecord app, int level, String msg) {
+        if (mService.getPulseEngine().shouldDeferTrimMemory()) {
+            return;
+        }
         IApplicationThread thread;
         if (app.mProfile.getTrimMemoryLevel() < level && (thread = app.getThread()) != null) {
             try {
@@ -1515,7 +1572,8 @@ public class AppProfiler {
     @GuardedBy("mService")
     final void performAppGcsIfAppropriateLocked() {
         synchronized (mProfilerLock) {
-            if (mService.canGcNowLocked()) {
+            if (!shouldDeferAppGcForPulseEngineLPf(SystemClock.uptimeMillis())
+                    && mService.canGcNowLocked()) {
                 performAppGcsLPf();
                 return;
             }
@@ -1543,6 +1601,24 @@ public class AppProfiler {
             }
             mService.mHandler.sendMessageAtTime(msg, when);
         }
+    }
+
+    @GuardedBy("mProfilerLock")
+    private boolean shouldDeferAppGcForPulseEngineLPf(long now) {
+        final PulseEngine pulseEngine = mService.getPulseEngine();
+        if (pulseEngine.shouldDeferAppGc()) {
+            if (mPulseEngineAppGcDeferralStartTime == 0L) {
+                mPulseEngineAppGcDeferralStartTime = now;
+            }
+            if (now - mPulseEngineAppGcDeferralStartTime
+                    < pulseEngine.getMaxElasticWorkDeferralMillis()) {
+                return true;
+            }
+            mPulseEngineAppGcDeferralStartTime = 0L;
+        } else {
+            mPulseEngineAppGcDeferralStartTime = 0L;
+        }
+        return false;
     }
 
     /**
@@ -1953,6 +2029,7 @@ public class AppProfiler {
     @GuardedBy("mService")
     private void handleMemoryPressureChangedLocked(@MemFactor int oldMemFactor,
             @MemFactor int newMemFactor) {
+        mService.getPulseEngine().onMemoryPressureChanged(newMemFactor);
         mService.mServices.rescheduleServiceRestartOnMemoryPressureIfNeededLocked(
                 oldMemFactor, newMemFactor, "mem-pressure-event", SystemClock.uptimeMillis());
     }
@@ -2373,7 +2450,7 @@ public class AppProfiler {
         // on refcounting to track begin/end of deferrals, not on actual
         // message ordering.  We don't care *what* activity is being
         // launched; only that we're doing so.
-        if (mPssDeferralTime > 0) {
+        if (mPssDeferralTime > 0 || mService.getPulseEngine().shouldDeferProcessPss()) {
             final Message msg = mBgHandler.obtainMessage(BgHandler.DEFER_PSS_MSG);
             mBgHandler.sendMessageAtFrontOfQueue(msg);
         }

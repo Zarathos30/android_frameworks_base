@@ -658,6 +658,7 @@ public class ActivityManagerService extends IActivityManager.Stub
     /** Service for optimizing resource usage from background apps. */
     private CachedAppOptimizer mCachedAppOptimizer;
     private AxKernelManagerService mAxKernelManager;
+    private PulseEngine mPulseEngine;
     OomAdjuster mOomAdjuster;
     @GuardedBy("this")
     ProcessStateController mProcessStateController;
@@ -1094,6 +1095,7 @@ public class ActivityManagerService extends IActivityManager.Stub
 
         @Override
         public void onIntentStarted(@NonNull Intent intent, long timestampNanos) {
+            mPulseEngine.onIntentStarted(timestampNanos);
             synchronized (this) {
                 mProcessList.getAppStartInfoTracker()
                         .onActivityIntentStarted(intent, timestampNanos);
@@ -1102,6 +1104,7 @@ public class ActivityManagerService extends IActivityManager.Stub
 
         @Override
         public void onIntentFailed(long id) {
+            mPulseEngine.onIntentFailed(id);
             mProcessList.getAppStartInfoTracker().onActivityIntentFailed(id);
             notifyAxBurstEngineAppLaunchFinished(removeAxLaunchPid(id));
         }
@@ -1111,6 +1114,7 @@ public class ActivityManagerService extends IActivityManager.Stub
                 String processName, int uid) {
             int axbeLaunchPid = -1;
             final long axbeLaunchTimeoutMs = axLaunchTimeoutMs(temperature);
+            mPulseEngine.onActivityLaunched(id, name, temperature, processName, uid);
             mAppProfiler.onActivityLaunched();
             synchronized (ActivityManagerService.this) {
                 String processRecordName = Flags.appStartInfoProcessNameFix()
@@ -1128,6 +1132,7 @@ public class ActivityManagerService extends IActivityManager.Stub
 
         @Override
         public void onActivityLaunchCancelled(long id) {
+            mPulseEngine.onActivityLaunchCancelled(id);
             mProcessList.getAppStartInfoTracker().onActivityLaunchCancelled(id);
             notifyAxBurstEngineAppLaunchFinished(removeAxLaunchPid(id));
         }
@@ -1135,6 +1140,7 @@ public class ActivityManagerService extends IActivityManager.Stub
         @Override
         public void onActivityLaunchFinished(long id, ComponentName name, long timestampNanos,
                 int launchMode) {
+            mPulseEngine.onActivityLaunchFinished(id, name, timestampNanos, launchMode);
             mProcessList.getAppStartInfoTracker().onActivityLaunchFinished(id, name,
                     timestampNanos, launchMode);
             notifyAxBurstEngineAppLaunchFinished(removeAxLaunchPid(id));
@@ -1144,6 +1150,7 @@ public class ActivityManagerService extends IActivityManager.Stub
         public void onReportFullyDrawn(long id, long timestampNanos) {
             ApplicationStartInfo startInfo = mProcessList.getAppStartInfoTracker()
                     .onActivityReportFullyDrawn(id, timestampNanos);
+            mPulseEngine.onReportFullyDrawn(id, timestampNanos);
 
             if (android.os.profiling.Flags.systemTriggeredProfilingNew()
                     && startInfo != null
@@ -2464,6 +2471,7 @@ public class ActivityManagerService extends IActivityManager.Stub
 
         mCachedAppOptimizer = new CachedAppOptimizer(this);
         mAxKernelManager = new AxKernelManagerService(mContext);
+        mPulseEngine = getOrCreatePulseEngine();
         mProcessStateController = new ProcessStateController
                 .Builder(this, mProcessList, activeUids, new OomAdjusterCallback())
                 .setHandlerThread(handlerThread)
@@ -2482,6 +2490,7 @@ public class ActivityManagerService extends IActivityManager.Stub
         mPendingIntentController =
                 new PendingIntentController(handlerThread.getLooper(), mUserController, mConstants);
         mAppRestrictionController = new AppRestrictionController(mContext, this);
+        mPulseEngine.setAppRestrictionController(mAppRestrictionController);
         mProcStartHandlerThread = null;
         mProcStartHandler = null;
         mHiddenApiBlacklist = null;
@@ -2535,6 +2544,7 @@ public class ActivityManagerService extends IActivityManager.Stub
         final Looper activityTaskLooper = DisplayThread.get().getLooper();
         mCachedAppOptimizer = new CachedAppOptimizer(this);
         mAxKernelManager = new AxKernelManagerService(mContext);
+        mPulseEngine = getOrCreatePulseEngine();
         mProcessStateController = new ProcessStateController
                 .Builder(this, mProcessList, activeUids, new OomAdjusterCallback())
                 .setLockObject(this)
@@ -2574,6 +2584,7 @@ public class ActivityManagerService extends IActivityManager.Stub
                 mHandlerThread.getLooper(), mUserController, mConstants);
 
         mAppRestrictionController = new AppRestrictionController(mContext, this);
+        mPulseEngine.setAppRestrictionController(mAppRestrictionController);
 
         mUseFifoUiScheduling = SystemProperties.getInt("sys.use_fifo_ui", 0) != 0;
 
@@ -2623,6 +2634,11 @@ public class ActivityManagerService extends IActivityManager.Stub
             Slog.e(TAG, "Failed to get read only fd for shared memory", e);
             throw new RuntimeException(e);
         }
+    }
+
+    private PulseEngine getOrCreatePulseEngine() {
+        final PulseEngine pulseEngine = LocalServices.getService(PulseEngine.class);
+        return pulseEngine != null ? pulseEngine : new PulseEngine(mContext);
     }
 
     void setBroadcastQueueForTest(BroadcastQueue broadcastQueue) {
@@ -7592,6 +7608,7 @@ public class ActivityManagerService extends IActivityManager.Stub
                 mActivityTaskManager.onScreenAwakeChanged(isAwake);
                 mProcessStateController.setWakefulness(wakefulness);
                 mCachedAppOptimizer.onWakefulnessChanged(wakefulness);
+                mPulseEngine.onWakefulnessChanged(wakefulness, isAwake);
 
                 updateOomAdjLocked(OOM_ADJ_REASON_UI_VISIBILITY);
             }
@@ -9145,6 +9162,13 @@ public class ActivityManagerService extends IActivityManager.Stub
         mAxKernelManager.systemReady();
         t.traceEnd();
 
+        t.traceBegin("PulseEngine.systemReady");
+        mPulseEngine.systemReady();
+        final int wakefulness = mWakefulness.get();
+        mPulseEngine.onWakefulnessChanged(wakefulness,
+                wakefulness == PowerManagerInternal.WAKEFULNESS_AWAKE);
+        t.traceEnd();
+
         t.traceBegin("watchDeviceProvisioning");
         watchDeviceProvisioning(mContext);
         t.traceEnd();
@@ -10544,6 +10568,7 @@ public class ActivityManagerService extends IActivityManager.Stub
         synchronized(this) {
             mConstants.dump(pw);
             mCachedAppOptimizer.dump(pw);
+            mPulseEngine.dump(pw);
             pw.println();
             if (dumpAll) {
                 pw.println(
@@ -11060,6 +11085,8 @@ public class ActivityManagerService extends IActivityManager.Stub
                 }
             } else if ("cao".equals(cmd)) {
                 mCachedAppOptimizer.dump(pw);
+            } else if ("pulseengine".equals(cmd)) {
+                mPulseEngine.dump(pw);
             } else if ("timers".equals(cmd)) {
                 AnrTimer.dump(pw, true);
             } else if ("services".equals(cmd) || "s".equals(cmd)) {
@@ -15623,17 +15650,22 @@ public class ActivityManagerService extends IActivityManager.Stub
     void updateTopAppListeners(ProcessRecord r) {
         String pkg;
         int uid;
+        int pid;
         if (r != null) {
             pkg = r.processName;
             uid = r.info.uid;
+            pid = r.getPid();
         } else {
             pkg = null;
             uid = -1;
+            pid = -1;
         }
+        boolean changed = false;
         // Has the UID or resumed package name changed?
         synchronized (mCurResumedAppLock) {
             if (uid != mCurResumedUid || (pkg != mCurResumedPackage
                     && (pkg == null || !pkg.equals(mCurResumedPackage)))) {
+                changed = true;
 
                 final long identity = Binder.clearCallingIdentity();
                 try {
@@ -15651,6 +15683,9 @@ public class ActivityManagerService extends IActivityManager.Stub
                     Binder.restoreCallingIdentity(identity);
                 }
             }
+        }
+        if (changed) {
+            mPulseEngine.onTopAppChanged(pkg, uid, pid);
         }
     }
 
@@ -17613,6 +17648,51 @@ public class ActivityManagerService extends IActivityManager.Stub
             return ActivityManagerService.this.canScheduleUserInitiatedJobs(uid, pid, pkgName);
         }
 
+        @Override
+        public boolean shouldDeferPulseEngineJobs() {
+            return mPulseEngine.shouldDeferJobs();
+        }
+
+        @Override
+        public boolean shouldDeferPulseEngineJob(int uid, @Nullable String packageName) {
+            return mPulseEngine.shouldDeferJob(uid, packageName);
+        }
+
+        @Override
+        public boolean shouldDeferPulseEngineBroadcast(int uid, @Nullable String packageName) {
+            return mPulseEngine.shouldDeferBroadcast(uid, packageName);
+        }
+
+        @Override
+        public boolean shouldDeferPulseEngineAlarm(int uid, @Nullable String packageName) {
+            return mPulseEngine.shouldDeferAlarm(uid, packageName);
+        }
+
+        @Override
+        public boolean isPulseEngineNetworkingBlocked(int uid) {
+            return mPulseEngine.isNetworkingBlocked(uid);
+        }
+
+        @Override
+        public boolean shouldDeferPulseEngineMaintenance() {
+            return mPulseEngine.shouldDeferMaintenance();
+        }
+
+        @Override
+        public long getPulseEngineElasticWorkDelayMillis() {
+            return mPulseEngine.getElasticWorkDelayMillis();
+        }
+
+        @Override
+        public long getPulseEngineAlarmDelayMillis() {
+            return mPulseEngine.getAppStaminaAlarmDelayMillis();
+        }
+
+        @Override
+        public long getPulseEngineMaxElasticWorkDeferralMillis() {
+            return mPulseEngine.getMaxElasticWorkDeferralMillis();
+        }
+
         public void reportCurKeyguardUsageEvent(boolean keyguardShowing) {
             ActivityManagerService.this.reportGlobalUsageEvent(keyguardShowing
                     ? UsageEvents.Event.KEYGUARD_SHOWN
@@ -19560,6 +19640,10 @@ public class ActivityManagerService extends IActivityManager.Stub
 
     CachedAppOptimizer getCachedAppOptimizer() {
         return mCachedAppOptimizer;
+    }
+
+    PulseEngine getPulseEngine() {
+        return mPulseEngine;
     }
 
     @VisibleForTesting
