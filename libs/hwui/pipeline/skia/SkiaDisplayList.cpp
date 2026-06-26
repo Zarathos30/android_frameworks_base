@@ -19,11 +19,14 @@
 #include <SkImagePriv.h>
 #include <SkPathOps.h>
 
+#include <vector>
+
 // clang-format off
 #include "FunctorDrawable.h" // Must be included before DumpOpsCanvas.h
 #include "DumpOpsCanvas.h"
 // clang-format on
 #include "SkiaPipeline.h"
+#include "Properties.h"
 #include "TreeInfo.h"
 #include "VectorDrawable.h"
 #include "renderthread/CanvasContext.h"
@@ -91,6 +94,15 @@ static bool intersects(const SkISize screenSize, const Matrix4& mat, const SkRec
     return SkRect::Make(screenSize).intersects(SkRect::MakeLTRB(minX, minY, maxX, maxY));
 }
 
+static bool pinTexturePrefetchImages(TreeInfo& info, std::vector<SkImage*>& images,
+                                     bool persistent) {
+    if (images.empty()) {
+        return true;
+    }
+    return persistent ? info.canvasContext.pinPersistentImages(images)
+                      : info.canvasContext.pinImages(images);
+}
+
 bool SkiaDisplayList::prepareListAndChildren(
         TreeObserver& observer, TreeInfo& info, bool functorsNeedLayer,
         std::function<void(RenderNode*, TreeObserver&, TreeInfo&, bool)> childFn) {
@@ -103,6 +115,20 @@ bool SkiaDisplayList::prepareListAndChildren(
         // to free up GPU resources.
         info.prepareTextures = false;
         info.canvasContext.unpinImages();
+    }
+    const bool renderEffectSubtree = info.renderEffectSubtreeScale < 1.0f;
+    if (info.prepareTextures && Properties::renderEffectTexturePrefetch) {
+        if (!pinTexturePrefetchImages(info, mTexturePrefetchImages, renderEffectSubtree)) {
+            info.prepareTextures = false;
+            info.canvasContext.unpinImages();
+        }
+    }
+    if (info.prepareTextures && Properties::renderEffectTexturePrefetch &&
+        renderEffectSubtree) {
+        if (!pinTexturePrefetchImages(info, mRenderEffectTexturePrefetchImages, true)) {
+            info.prepareTextures = false;
+            info.canvasContext.unpinImages();
+        }
     }
 
 #ifdef __ANDROID__
@@ -178,6 +204,8 @@ void SkiaDisplayList::reset() {
 
     mMeshBufferData.clear();
     mMutableImages.clear();
+    mTexturePrefetchImages.clear();
+    mRenderEffectTexturePrefetchImages.clear();
     mVectorDrawables.clear();
     mAnimatedImages.clear();
     mChildFunctors.clear();

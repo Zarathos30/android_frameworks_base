@@ -18,6 +18,11 @@
 
 #include "pipeline/skia/SkiaPipeline.h"
 
+#include <cstddef>
+#include <cstdint>
+
+class GrDirectContext;
+
 namespace android {
 namespace uirenderer {
 namespace skiapipeline {
@@ -35,8 +40,10 @@ public:
                              ErrorHandler* errorHandler) override;
 
     bool pinImages(std::vector<SkImage*>& mutableImages) override;
+    bool pinPersistentImages(std::vector<SkImage*>& images) override;
     bool pinImages(LsaVector<sk_sp<Bitmap>>& images) override { return false; }
     void unpinImages() override;
+    void onDestroyHardwareResources() override;
     void renderLayersImpl(const LayerUpdateQueue& layers, bool opaque) override;
     void setHardwareBuffer(AHardwareBuffer* hardwareBuffer) override;
     bool hasHardwareBuffer() override { return mHardwareBuffer != nullptr; }
@@ -47,11 +54,26 @@ protected:
     sk_sp<SkSurface> getBufferSkSurface(
             const renderthread::HardwareBufferRenderParams& bufferParams);
     void dumpResourceCacheUsage() const;
+    void clearPersistentImages();
 
     AHardwareBuffer* mHardwareBuffer = nullptr;
 
 private:
+    struct PersistentPinnedImage {
+        sk_sp<SkImage> image;
+        uint32_t id = 0;
+        size_t bytes = 0;
+        uint32_t lastUsed = 0;
+    };
+
+    void trimPersistentImages();
+    void evictPersistentImage(size_t index);
+
     std::vector<sk_sp<SkImage>> mPinnedImages;
+    std::vector<PersistentPinnedImage> mPersistentPinnedImages;
+    size_t mPersistentPinnedImageBytes = 0;
+    uint32_t mPersistentPinnedImageGeneration = 1;
+    GrDirectContext* mPersistentPinnedImageContext = nullptr;
 };
 
 } /* namespace skiapipeline */

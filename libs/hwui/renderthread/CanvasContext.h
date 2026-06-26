@@ -103,6 +103,12 @@ public:
         }
         return mRenderPipeline->pinImages(mutableImages);
     }
+    bool pinPersistentImages(std::vector<SkImage*>& images) {
+        if (!Properties::isDrawingEnabled()) {
+            return true;
+        }
+        return mRenderPipeline->pinPersistentImages(images);
+    }
     bool pinImages(LsaVector<sk_sp<Bitmap>>& images) {
         if (!Properties::isDrawingEnabled()) {
             return true;

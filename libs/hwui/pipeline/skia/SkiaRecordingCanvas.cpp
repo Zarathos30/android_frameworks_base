@@ -31,6 +31,10 @@
 #include <SkTypes.h>
 #include <src/image/SkImage_Base.h>
 
+#include <algorithm>
+#include <cstdint>
+#include <vector>
+
 #include "CanvasTransform.h"
 #include "hwui/Paint.h"
 #ifdef __ANDROID__ // Layoutlib does not support Layers
@@ -38,6 +42,7 @@
 #include "LayerDrawable.h"
 #endif
 #include "NinePatchUtils.h"
+#include "Properties.h"
 #include "RenderNode.h"
 #include "pipeline/skia/AnimatedDrawables.h"
 #include "pipeline/skia/BackdropFilterDrawable.h"
@@ -52,6 +57,62 @@
 namespace android {
 namespace uirenderer {
 namespace skiapipeline {
+
+static bool isTexturePrefetchCandidate(SkImage* image) {
+    if (!Properties::renderEffectTexturePrefetch) {
+        return false;
+    }
+    if (image == nullptr || as_IB(image)->type() != SkImage_Base::Type::kRasterPinnable) {
+        return false;
+    }
+    return true;
+}
+
+static int64_t textureArea(SkImage* image) {
+    return static_cast<int64_t>(image->width()) * image->height();
+}
+
+static bool shouldPrefetchTexture(SkImage* image) {
+    if (!isTexturePrefetchCandidate(image)) {
+        return false;
+    }
+    const int minArea = Properties::renderEffectTexturePrefetchMinArea;
+    if (minArea <= 0) {
+        return true;
+    }
+    return textureArea(image) >= minArea;
+}
+
+static bool shouldPrefetchRenderEffectTexture(SkImage* image) {
+    if (!isTexturePrefetchCandidate(image)) {
+        return false;
+    }
+    const int minArea = Properties::renderEffectTexturePrefetchMinArea;
+    const int64_t area = textureArea(image);
+    if (minArea <= 0 || area >= minArea) {
+        return false;
+    }
+    const int subtreeMinArea = Properties::renderEffectTexturePrefetchSubtreeMinArea;
+    return subtreeMinArea > 0 && area >= subtreeMinArea;
+}
+
+static void addImage(std::vector<SkImage*>& images, SkImage* image) {
+    if (std::find(images.begin(), images.end(), image) == images.end()) {
+        images.push_back(image);
+    }
+}
+
+static void addTexturePrefetchImage(std::vector<SkImage*>& images,
+                                    std::vector<SkImage*>& renderEffectImages,
+                                    SkImage* image) {
+    if (!shouldPrefetchTexture(image)) {
+        if (shouldPrefetchRenderEffectTexture(image)) {
+            addImage(renderEffectImages, image);
+        }
+        return;
+    }
+    addImage(images, image);
+}
 
 // ----------------------------------------------------------------------------
 // Recording Canvas Setup
@@ -225,7 +286,11 @@ void SkiaRecordingCanvas::handleMutableImages(Bitmap& bitmap, DrawImagePayload& 
     // it is not safe to store a raw SkImage pointer, because the image object will be destroyed
     // when this function ends.
     if (!bitmap.isImmutable() && payload.image.get() && !payload.image->unique()) {
-        mDisplayList->mMutableImages.push_back(payload.image.get());
+        addImage(mDisplayList->mMutableImages, payload.image.get());
+    } else if (bitmap.isImmutable() && payload.image.get() && !payload.image->unique()) {
+        addTexturePrefetchImage(mDisplayList->mTexturePrefetchImages,
+                                mDisplayList->mRenderEffectTexturePrefetchImages,
+                                payload.image.get());
     }
 
     if (bitmap.hasGainmap()) {
@@ -234,7 +299,12 @@ void SkiaRecordingCanvas::handleMutableImages(Bitmap& bitmap, DrawImagePayload& 
         // so only store it in the mutable list if it was actually recorded
         if (!gainmapBitmap->isImmutable() && payload.gainmapImage.get() &&
             !payload.gainmapImage->unique()) {
-            mDisplayList->mMutableImages.push_back(payload.gainmapImage.get());
+            addImage(mDisplayList->mMutableImages, payload.gainmapImage.get());
+        } else if (gainmapBitmap->isImmutable() && payload.gainmapImage.get() &&
+                   !payload.gainmapImage->unique()) {
+            addTexturePrefetchImage(mDisplayList->mTexturePrefetchImages,
+                                    mDisplayList->mRenderEffectTexturePrefetchImages,
+                                    payload.gainmapImage.get());
         }
     }
 }
@@ -253,7 +323,7 @@ void SkiaRecordingCanvas::onFilterPaint(android::Paint& paint) {
         // then it isn't a mutable bitmap.
         auto ib = as_IB(image);
         if (ib->type() == SkImage_Base::Type::kRasterPinnable) {
-            mDisplayList->mMutableImages.push_back(image);
+            addImage(mDisplayList->mMutableImages, image);
         }
     }
 }

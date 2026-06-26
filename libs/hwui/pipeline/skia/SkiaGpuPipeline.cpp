@@ -21,16 +21,96 @@
 #include <include/android/SkSurfaceAndroid.h>
 #include <include/gpu/ganesh/SkSurfaceGanesh.h>
 
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <iterator>
+
+#include "Properties.h"
+
 using namespace android::uirenderer::renderthread;
 
 namespace android {
 namespace uirenderer {
 namespace skiapipeline {
 
+static constexpr size_t kPersistentTextureCacheMaxBytes = 24 * 1024 * 1024;
+static constexpr size_t kPersistentTextureCacheMaxCount = 192;
+static constexpr uint32_t kPersistentTextureCacheStaleFrames = 64;
+
+static bool shouldScaleLargeLayer(RenderNode* node, float inheritedScale) {
+    if (inheritedScale >= 1.0f || Properties::renderEffectLargeLayerScale >= 1.0f ||
+            Properties::renderEffectLargeLayerMinArea <= 0) {
+        return false;
+    }
+    const LayerProperties& layerProperties = node->properties().layerProperties();
+    if (!layerProperties.getStretchEffect().isEmpty() ||
+            layerProperties.getImageFilter() != nullptr ||
+            layerProperties.getBackdropImageFilter() != nullptr) {
+        return false;
+    }
+    const int64_t area = static_cast<int64_t>(node->getWidth()) * node->getHeight();
+    return area >= Properties::renderEffectLargeLayerMinArea;
+}
+
+static float getRenderEffectLayerScale(RenderNode* node) {
+    const LayerProperties& layerProperties = node->properties().layerProperties();
+    const float inheritedScale = node->inheritedRenderEffectLayerScale();
+    if (!layerProperties.getStretchEffect().isEmpty()) {
+        return 1.0f;
+    }
+    if (isLayerScaledBlurRenderEffect(layerProperties.getImageFilter())) {
+        return std::min(inheritedScale,
+                        getRenderEffectLayerScaleForSize(node->getWidth(), node->getHeight()));
+    }
+    if (isLayerScaledBlurRenderEffect(layerProperties.getBackdropImageFilter())) {
+        return std::min(inheritedScale,
+                        getRenderEffectLayerScaleForSize(node->getWidth(), node->getHeight()));
+    }
+    if (shouldScaleLargeLayer(node, inheritedScale)) {
+        return std::min(inheritedScale, Properties::renderEffectLargeLayerScale);
+    }
+    return inheritedScale;
+}
+
+static size_t estimateTextureBytes(SkImage* image) {
+    const int bytesPerPixel = std::max(1, image->imageInfo().bytesPerPixel());
+    return static_cast<size_t>(image->width()) * static_cast<size_t>(image->height()) *
+            static_cast<size_t>(bytesPerPixel);
+}
+
+static bool canReuseLayerSurface(SkSurface* layer, int surfaceWidth, int surfaceHeight,
+                                 float currentLayerScale, float layerScale) {
+    if (!layer || currentLayerScale != layerScale || layer->width() < surfaceWidth ||
+            layer->height() < surfaceHeight) {
+        return false;
+    }
+    const int64_t requestedArea = static_cast<int64_t>(surfaceWidth) * surfaceHeight;
+    const int64_t currentArea = static_cast<int64_t>(layer->width()) * layer->height();
+    return requestedArea > 0 && currentArea <= requestedArea + requestedArea / 2;
+}
+
+static void updateLayerTransform(RenderNode* node, const DamageAccumulator& damageAccumulator,
+                                 int surfaceWidth, int surfaceHeight, float layerScale) {
+    Matrix4 windowTransform;
+    damageAccumulator.computeCurrentTransform(&windowTransform);
+    SkiaLayer* layer = node->getSkiaLayer();
+    layer->inverseTransformInWindow.loadInverse(windowTransform);
+    layer->renderScale = layerScale;
+    layer->requestedWidth = surfaceWidth;
+    layer->requestedHeight = surfaceHeight;
+}
+
 SkiaGpuPipeline::SkiaGpuPipeline(RenderThread& thread) : SkiaPipeline(thread) {}
 
 SkiaGpuPipeline::~SkiaGpuPipeline() {
     unpinImages();
+    clearPersistentImages();
+}
+
+void SkiaGpuPipeline::onDestroyHardwareResources() {
+    clearPersistentImages();
+    SkiaPipeline::onDestroyHardwareResources();
 }
 
 void SkiaGpuPipeline::renderLayersImpl(const LayerUpdateQueue& layers, bool opaque) {
@@ -73,11 +153,22 @@ bool SkiaGpuPipeline::createOrUpdateLayer(RenderNode* node,
                                           const DamageAccumulator& damageAccumulator,
                                           ErrorHandler* errorHandler) {
     // compute the size of the surface (i.e. texture) to be allocated for this layer
-    const int surfaceWidth = ceilf(node->getWidth() / float(LAYER_SIZE)) * LAYER_SIZE;
-    const int surfaceHeight = ceilf(node->getHeight() / float(LAYER_SIZE)) * LAYER_SIZE;
+    const float layerScale = getRenderEffectLayerScale(node);
+    const int surfaceWidth = getScaledLayerSurfaceSize(node->getWidth(), layerScale);
+    const int surfaceHeight = getScaledLayerSurfaceSize(node->getHeight(), layerScale);
 
     SkSurface* layer = node->getLayerSurface();
-    if (!layer || layer->width() != surfaceWidth || layer->height() != surfaceHeight) {
+    const float currentLayerScale =
+            node->getSkiaLayer() ? node->getSkiaLayer()->renderScale : 1.0f;
+    if (canReuseLayerSurface(layer, surfaceWidth, surfaceHeight, currentLayerScale, layerScale)) {
+        SkiaLayer* skiaLayer = node->getSkiaLayer();
+        const bool requestChanged = skiaLayer->requestedWidth != surfaceWidth ||
+                skiaLayer->requestedHeight != surfaceHeight;
+        updateLayerTransform(node, damageAccumulator, surfaceWidth, surfaceHeight, layerScale);
+        return requestChanged;
+    }
+    if (!layer || layer->width() != surfaceWidth || layer->height() != surfaceHeight ||
+        currentLayerScale != layerScale) {
         SkImageInfo info;
         info = SkImageInfo::Make(surfaceWidth, surfaceHeight, getSurfaceColorType(),
                                  kPremul_SkAlphaType, getSurfaceColorSpace());
@@ -89,9 +180,7 @@ bool SkiaGpuPipeline::createOrUpdateLayer(RenderNode* node,
         if (node->getLayerSurface()) {
             // update the transform in window of the layer to reset its origin wrt light source
             // position
-            Matrix4 windowTransform;
-            damageAccumulator.computeCurrentTransform(&windowTransform);
-            node->getSkiaLayer()->inverseTransformInWindow.loadInverse(windowTransform);
+            updateLayerTransform(node, damageAccumulator, surfaceWidth, surfaceHeight, layerScale);
         } else {
             String8 cachesOutput;
             mRenderThread.cacheManager().dumpMemoryUsage(cachesOutput,
@@ -121,9 +210,63 @@ bool SkiaGpuPipeline::pinImages(std::vector<SkImage*>& mutableImages) {
         if (skgpu::ganesh::PinAsTexture(mRenderThread.getGrContext(), image)) {
             mPinnedImages.emplace_back(sk_ref_sp(image));
         } else {
+            unpinImages();
             return false;
         }
     }
+    return true;
+}
+
+bool SkiaGpuPipeline::pinPersistentImages(std::vector<SkImage*>& images) {
+    GrDirectContext* context = mRenderThread.getGrContext();
+    if (!context) {
+        clearPersistentImages();
+        ALOGD("Trying to pin an image with an invalid GrContext");
+        return false;
+    }
+    if (mPersistentPinnedImageContext != nullptr && mPersistentPinnedImageContext != context) {
+        clearPersistentImages();
+    }
+    mPersistentPinnedImageContext = context;
+    for (SkImage* image : images) {
+        const uint32_t id = image->uniqueID();
+        auto it = std::find_if(mPersistentPinnedImages.begin(), mPersistentPinnedImages.end(),
+                               [id](const PersistentPinnedImage& entry) {
+                                   return entry.id == id;
+                               });
+        if (it != mPersistentPinnedImages.end()) {
+            it->lastUsed = mPersistentPinnedImageGeneration;
+            continue;
+        }
+
+        const size_t bytes = estimateTextureBytes(image);
+        if (bytes > kPersistentTextureCacheMaxBytes) {
+            continue;
+        }
+        while (!mPersistentPinnedImages.empty() &&
+               (mPersistentPinnedImages.size() >= kPersistentTextureCacheMaxCount ||
+                mPersistentPinnedImageBytes > kPersistentTextureCacheMaxBytes - bytes)) {
+            auto oldest = std::min_element(mPersistentPinnedImages.begin(),
+                                           mPersistentPinnedImages.end(),
+                                           [](const PersistentPinnedImage& lhs,
+                                              const PersistentPinnedImage& rhs) {
+                                               return lhs.lastUsed < rhs.lastUsed;
+                                           });
+            evictPersistentImage(
+                    static_cast<size_t>(std::distance(mPersistentPinnedImages.begin(), oldest)));
+        }
+        if (!skgpu::ganesh::PinAsTexture(context, image)) {
+            clearPersistentImages();
+            mPersistentPinnedImageContext = context;
+            if (!skgpu::ganesh::PinAsTexture(context, image)) {
+                return false;
+            }
+        }
+        mPersistentPinnedImageBytes += bytes;
+        mPersistentPinnedImages.push_back({sk_ref_sp(image), id, bytes,
+                                           mPersistentPinnedImageGeneration});
+    }
+    trimPersistentImages();
     return true;
 }
 
@@ -132,6 +275,49 @@ void SkiaGpuPipeline::unpinImages() {
         skgpu::ganesh::UnpinTexture(mRenderThread.getGrContext(), image.get());
     }
     mPinnedImages.clear();
+    mPersistentPinnedImageGeneration++;
+    trimPersistentImages();
+}
+
+void SkiaGpuPipeline::clearPersistentImages() {
+    GrDirectContext* context = mPersistentPinnedImageContext != nullptr
+            ? mPersistentPinnedImageContext : mRenderThread.getGrContext();
+    for (auto& entry : mPersistentPinnedImages) {
+        skgpu::ganesh::UnpinTexture(context, entry.image.get());
+    }
+    mPersistentPinnedImages.clear();
+    mPersistentPinnedImageBytes = 0;
+    mPersistentPinnedImageContext = nullptr;
+}
+
+void SkiaGpuPipeline::trimPersistentImages() {
+    for (size_t i = mPersistentPinnedImages.size(); i > 0; i--) {
+        const size_t index = i - 1;
+        if (mPersistentPinnedImageGeneration - mPersistentPinnedImages[index].lastUsed >
+                kPersistentTextureCacheStaleFrames) {
+            evictPersistentImage(index);
+        }
+    }
+    while (mPersistentPinnedImages.size() > kPersistentTextureCacheMaxCount ||
+           mPersistentPinnedImageBytes > kPersistentTextureCacheMaxBytes) {
+        auto oldest = std::min_element(mPersistentPinnedImages.begin(),
+                                       mPersistentPinnedImages.end(),
+                                       [](const PersistentPinnedImage& lhs,
+                                          const PersistentPinnedImage& rhs) {
+                                           return lhs.lastUsed < rhs.lastUsed;
+                                       });
+        evictPersistentImage(
+                static_cast<size_t>(std::distance(mPersistentPinnedImages.begin(), oldest)));
+    }
+}
+
+void SkiaGpuPipeline::evictPersistentImage(size_t index) {
+    auto& entry = mPersistentPinnedImages[index];
+    GrDirectContext* context = mPersistentPinnedImageContext != nullptr
+            ? mPersistentPinnedImageContext : mRenderThread.getGrContext();
+    skgpu::ganesh::UnpinTexture(context, entry.image.get());
+    mPersistentPinnedImageBytes -= std::min(mPersistentPinnedImageBytes, entry.bytes);
+    mPersistentPinnedImages.erase(mPersistentPinnedImages.begin() + index);
 }
 
 void SkiaGpuPipeline::prepareToDraw(const RenderThread& thread, Bitmap* bitmap) {

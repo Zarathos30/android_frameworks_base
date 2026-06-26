@@ -153,7 +153,9 @@ DeferredLayerUpdater* SkiaVulkanPipeline::createTextureLayer() {
     return new DeferredLayerUpdater(mRenderThread.renderState());
 }
 
-void SkiaVulkanPipeline::onStop() {}
+void SkiaVulkanPipeline::onStop() {
+    clearPersistentImages();
+}
 
 [[nodiscard]] android::base::unique_fd SkiaVulkanPipeline::flush() {
     int fence = -1;

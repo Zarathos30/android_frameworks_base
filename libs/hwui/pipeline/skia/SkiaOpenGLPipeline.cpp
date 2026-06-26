@@ -226,6 +226,7 @@ void SkiaOpenGLPipeline::onContextDestroyed() {
 }
 
 void SkiaOpenGLPipeline::onStop() {
+    clearPersistentImages();
     if (mEglManager.isCurrent(mEglSurface)) {
         mEglManager.makeCurrent(EGL_NO_SURFACE);
     }

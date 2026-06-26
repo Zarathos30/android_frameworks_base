@@ -29,6 +29,7 @@ public:
     ~SkiaGpuPipeline() {}
 
     bool pinImages(std::vector<SkImage*>& mutableImages) override { return false; }
+    bool pinPersistentImages(std::vector<SkImage*>& images) override { return false; }
     bool pinImages(LsaVector<sk_sp<Bitmap>>& images) override { return false; }
     void unpinImages() override {}
 

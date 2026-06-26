@@ -176,6 +176,8 @@ public:
     std::deque<RenderNodeDrawable> mChildNodes;
     std::deque<FunctorDrawable*> mChildFunctors;
     std::vector<SkImage*> mMutableImages;
+    std::vector<SkImage*> mTexturePrefetchImages;
+    std::vector<SkImage*> mRenderEffectTexturePrefetchImages;
     std::vector<std::shared_ptr<const MeshBufferData>> mMeshBufferData;
 
 private:
