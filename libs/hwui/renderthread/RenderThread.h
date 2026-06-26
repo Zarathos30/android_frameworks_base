@@ -91,6 +91,11 @@ public:
     static JVMAttachHook getOnStartHook();
 
     WorkQueue& queue() { return ThreadBase::queue(); }
+#if defined(__ANDROID__)
+    pid_t getTid() const { return ThreadBase::getTid(); }
+#else
+    pid_t getTid() const { return 0; }
+#endif
 
     // Mimics android.view.Choreographer
     void postFrameCallback(IFrameCallback* callback);
