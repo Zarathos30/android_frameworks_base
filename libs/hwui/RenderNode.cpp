@@ -62,6 +62,33 @@ static int64_t generateId() {
     return sNextId++;
 }
 
+static bool hasScaledBlurRenderEffect(const RenderProperties& properties) {
+    const LayerProperties& layerProperties = properties.layerProperties();
+    return skiapipeline::getRenderEffectLayerScaleForSize(
+                   properties.getWidth(), properties.getHeight()) < 1.0f &&
+            layerProperties.getStretchEffect().isEmpty() &&
+            (isLayerScaledBlurRenderEffect(layerProperties.getImageFilter()) ||
+             isLayerScaledBlurRenderEffect(layerProperties.getBackdropImageFilter()));
+}
+
+static bool canFlattenRenderEffectChildLayer(const RenderProperties& properties,
+                                             bool willHaveFunctor, bool childFunctorsNeedLayer,
+                                             float renderEffectSubtreeScale) {
+    if (renderEffectSubtreeScale >= 1.0f ||
+            properties.effectiveLayerType() != LayerType::RenderLayer || willHaveFunctor ||
+            childFunctorsNeedLayer || properties.getAlpha() < 1.0f) {
+        return false;
+    }
+
+    const LayerProperties& layerProperties = properties.layerProperties();
+    return layerProperties.alpha() == 255 &&
+            layerProperties.xferMode() == SkBlendMode::kSrcOver &&
+            layerProperties.getColorFilter() == nullptr &&
+            layerProperties.getImageFilter() == nullptr &&
+            layerProperties.getBackdropImageFilter() == nullptr &&
+            layerProperties.getStretchEffect().isEmpty();
+}
+
 RenderNode::RenderNode()
         : mUniqueId(generateId())
         , mDirtyPropertyFields(0)
@@ -170,7 +197,7 @@ void RenderNode::damageSelf(TreeInfo& info) {
 
 void RenderNode::prepareLayer(TreeInfo& info, uint32_t dirtyMask) {
     LayerType layerType = properties().effectiveLayerType();
-    if (CC_UNLIKELY(layerType == LayerType::RenderLayer)) {
+    if (CC_UNLIKELY(layerType == LayerType::RenderLayer && !mFlattenRenderEffectChildLayer)) {
         // Damage applied so far needs to affect our parent, but does not require
         // the layer to be updated. So we pop/push here to clear out the current
         // damage and get a clean state for display list or children updates to
@@ -187,7 +214,8 @@ void RenderNode::pushLayerUpdate(TreeInfo& info) {
     LayerType layerType = properties().effectiveLayerType();
     // If we are not a layer OR we cannot be rendered (eg, view was detached)
     // we need to destroy any Layers we may have had previously
-    if (CC_LIKELY(layerType != LayerType::RenderLayer) || CC_UNLIKELY(!isRenderable()) ||
+    if (CC_LIKELY(layerType != LayerType::RenderLayer) ||
+        CC_UNLIKELY(mFlattenRenderEffectChildLayer) || CC_UNLIKELY(!isRenderable()) ||
         CC_UNLIKELY(properties().getWidth() <= 0) || CC_UNLIKELY(properties().getHeight() <= 0) ||
         CC_UNLIKELY(!properties().fitsOnLayer())) {
         if (CC_UNLIKELY(hasLayer())) {
@@ -244,6 +272,14 @@ void RenderNode::prepareTreeImpl(TreeObserver& observer, TreeInfo& info, bool fu
     if (!mProperties.layerProperties().getStretchEffect().isEmpty()) {
         info.stretchEffectCount++;
     }
+    mInheritedRenderEffectLayerScale = info.renderEffectSubtreeScale;
+    const float previousRenderEffectSubtreeScale = info.renderEffectSubtreeScale;
+    if (hasScaledBlurRenderEffect(mProperties)) {
+        info.renderEffectSubtreeScale = std::min(
+                info.renderEffectSubtreeScale,
+                skiapipeline::getRenderEffectLayerScaleForSize(
+                        mProperties.getWidth(), mProperties.getHeight()));
+    }
 
     uint32_t animatorDirtyMask = 0;
     if (CC_LIKELY(info.runAnimations)) {
@@ -258,6 +294,8 @@ void RenderNode::prepareTreeImpl(TreeObserver& observer, TreeInfo& info, bool fu
     }
     bool childFunctorsNeedLayer =
             mProperties.prepareForFunctorPresence(willHaveFunctor, functorsNeedLayer);
+    mFlattenRenderEffectChildLayer = canFlattenRenderEffectChildLayer(
+            mProperties, willHaveFunctor, childFunctorsNeedLayer, info.renderEffectSubtreeScale);
 
     if (CC_UNLIKELY(mPositionListener.get())) {
         mPositionListener->onPositionUpdated(*this, info);
@@ -298,6 +336,7 @@ void RenderNode::prepareTreeImpl(TreeObserver& observer, TreeInfo& info, bool fu
     if (!mProperties.layerProperties().getStretchEffect().isEmpty()) {
         info.stretchEffectCount--;
     }
+    info.renderEffectSubtreeScale = previousRenderEffectSubtreeScale;
     info.damageAccumulator->popTransform();
 }
 
@@ -355,36 +394,54 @@ std::optional<RenderNode::SnapshotResult> RenderNode::updateSnapshotIfRequired(
         return std::nullopt;
     }
 
-    sk_sp<SkImage> snapshot = layerSurface->makeImageSnapshot();
-    const auto subset = SkIRect::MakeWH(properties().getWidth(),
-                                        properties().getHeight());
+    const float layerScale = getSkiaLayer()->renderScale;
+    sk_sp<SkImageFilter> scaledImageFilter;
+    if (imageFilter != nullptr && layerScale < 1.0f) {
+        scaledImageFilter = makeLayerScaledBlurRenderEffect(imageFilter, layerScale);
+        if (scaledImageFilter != nullptr) {
+            imageFilter = scaledImageFilter.get();
+        }
+    }
+    const int subsetWidth =
+            std::min(layerSurface->width(),
+                     skiapipeline::getScaledLayerContentSize(properties().getWidth(), layerScale));
+    const int subsetHeight =
+            std::min(layerSurface->height(),
+                     skiapipeline::getScaledLayerContentSize(properties().getHeight(), layerScale));
+    const auto subset = SkIRect::MakeWH(subsetWidth, subsetHeight);
+    const auto scaledClipBounds = skiapipeline::scaleLayerRectOut(clipBounds, layerScale);
     uint32_t layerSurfaceGenerationId = layerSurface->generationID();
+    if (imageFilter != nullptr && mSnapshotResult.snapshot != nullptr &&
+        imageFilter == mTargetImageFilter.get() && mImageFilterClipBounds == scaledClipBounds &&
+        mTargetImageFilterLayerSurfaceGenerationId == layerSurfaceGenerationId) {
+        return mSnapshotResult;
+    }
+
+    sk_sp<SkImage> snapshot = layerSurface->makeImageSnapshot();
     // If we don't have an ImageFilter just return the snapshot
     if (imageFilter == nullptr) {
         mSnapshotResult.snapshot = snapshot;
         mSnapshotResult.outSubset = subset;
         mSnapshotResult.outOffset = SkIPoint::Make(0.0f, 0.0f);
-        mImageFilterClipBounds = clipBounds;
+        mImageFilterClipBounds = scaledClipBounds;
         mTargetImageFilter = nullptr;
         mTargetImageFilterLayerSurfaceGenerationId = 0;
-    } else if (mSnapshotResult.snapshot == nullptr || imageFilter != mTargetImageFilter.get() ||
-               mImageFilterClipBounds != clipBounds ||
-               mTargetImageFilterLayerSurfaceGenerationId != layerSurfaceGenerationId) {
+    } else {
         // Otherwise create a new snapshot with the given filter and snapshot
 #ifdef __ANDROID__
         if (context) {
             mSnapshotResult.snapshot = SkImages::MakeWithFilter(
-                    context, snapshot, imageFilter, subset, clipBounds, &mSnapshotResult.outSubset,
-                    &mSnapshotResult.outOffset);
+                    context, snapshot, imageFilter, subset, scaledClipBounds,
+                    &mSnapshotResult.outSubset, &mSnapshotResult.outOffset);
         } else
 #endif
         {
             mSnapshotResult.snapshot = SkImages::MakeWithFilter(
-                    snapshot, imageFilter, subset, clipBounds, &mSnapshotResult.outSubset,
+                    snapshot, imageFilter, subset, scaledClipBounds, &mSnapshotResult.outSubset,
                     &mSnapshotResult.outOffset);
         }
         mTargetImageFilter = sk_ref_sp(imageFilter);
-        mImageFilterClipBounds = clipBounds;
+        mImageFilterClipBounds = scaledClipBounds;
         mTargetImageFilterLayerSurfaceGenerationId = layerSurfaceGenerationId;
     }
 

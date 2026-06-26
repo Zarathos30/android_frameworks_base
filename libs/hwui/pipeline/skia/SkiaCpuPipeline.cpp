@@ -18,8 +18,12 @@
 
 #include <system/window.h>
 
+#include <algorithm>
+#include <cstdint>
+
 #include "DeviceInfo.h"
 #include "LightingInfo.h"
+#include "Properties.h"
 #include "renderthread/Frame.h"
 #include "utils/Color.h"
 
@@ -28,6 +32,32 @@ using namespace android::uirenderer::renderthread;
 namespace android {
 namespace uirenderer {
 namespace skiapipeline {
+
+static float getRenderEffectLayerScale(RenderNode* node) {
+    const LayerProperties& layerProperties = node->properties().layerProperties();
+    const float inheritedScale = node->inheritedRenderEffectLayerScale();
+    if (!layerProperties.getStretchEffect().isEmpty()) {
+        return 1.0f;
+    }
+    if (isLayerScaledBlurRenderEffect(layerProperties.getImageFilter())) {
+        return std::min(inheritedScale,
+                        getRenderEffectLayerScaleForSize(node->getWidth(), node->getHeight()));
+    }
+    if (isLayerScaledBlurRenderEffect(layerProperties.getBackdropImageFilter())) {
+        return std::min(inheritedScale,
+                        getRenderEffectLayerScaleForSize(node->getWidth(), node->getHeight()));
+    }
+    if (inheritedScale < 1.0f && Properties::renderEffectLargeLayerScale < 1.0f &&
+            Properties::renderEffectLargeLayerMinArea > 0 &&
+            layerProperties.getImageFilter() == nullptr &&
+            layerProperties.getBackdropImageFilter() == nullptr) {
+        const int64_t area = static_cast<int64_t>(node->getWidth()) * node->getHeight();
+        if (area >= Properties::renderEffectLargeLayerMinArea) {
+            return std::min(inheritedScale, Properties::renderEffectLargeLayerScale);
+        }
+    }
+    return inheritedScale;
+}
 
 void SkiaCpuPipeline::renderLayersImpl(const LayerUpdateQueue& layers, bool opaque) {
     // Render all layers that need to be updated, in order.
@@ -52,11 +82,15 @@ bool SkiaCpuPipeline::createOrUpdateLayer(RenderNode* node,
                                           const DamageAccumulator& damageAccumulator,
                                           ErrorHandler* errorHandler) {
     // compute the size of the surface (i.e. texture) to be allocated for this layer
-    const int surfaceWidth = ceilf(node->getWidth() / float(LAYER_SIZE)) * LAYER_SIZE;
-    const int surfaceHeight = ceilf(node->getHeight() / float(LAYER_SIZE)) * LAYER_SIZE;
+    const float layerScale = getRenderEffectLayerScale(node);
+    const int surfaceWidth = getScaledLayerSurfaceSize(node->getWidth(), layerScale);
+    const int surfaceHeight = getScaledLayerSurfaceSize(node->getHeight(), layerScale);
 
     SkSurface* layer = node->getLayerSurface();
-    if (!layer || layer->width() != surfaceWidth || layer->height() != surfaceHeight) {
+    const float currentLayerScale =
+            node->getSkiaLayer() ? node->getSkiaLayer()->renderScale : 1.0f;
+    if (!layer || layer->width() != surfaceWidth || layer->height() != surfaceHeight ||
+        currentLayerScale != layerScale) {
         SkImageInfo info;
         info = SkImageInfo::Make(surfaceWidth, surfaceHeight, getSurfaceColorType(),
                                  kPremul_SkAlphaType, getSurfaceColorSpace());
@@ -68,6 +102,7 @@ bool SkiaCpuPipeline::createOrUpdateLayer(RenderNode* node,
             Matrix4 windowTransform;
             damageAccumulator.computeCurrentTransform(&windowTransform);
             node->getSkiaLayer()->inverseTransformInWindow.loadInverse(windowTransform);
+            node->getSkiaLayer()->renderScale = layerScale;
         } else {
             String8 cachesOutput;
             mRenderThread.cacheManager().dumpMemoryUsage(cachesOutput,

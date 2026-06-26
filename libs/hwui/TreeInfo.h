@@ -106,6 +106,7 @@ public:
     const SkISize screenSize;
 
     int stretchEffectCount = 0;
+    float renderEffectSubtreeScale = 1.0f;
 
     bool forceDrawFrame = false;
 

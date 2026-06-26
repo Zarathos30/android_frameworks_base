@@ -16,13 +16,91 @@
 #include "Bitmap.h"
 #include "ColorFilter.h"
 #include "GraphicsJNI.h"
+#include "Properties.h"
 #include "SkBlendMode.h"
 #include "SkImageFilter.h"
 #include "SkImageFilters.h"
 #include "graphics_jni_helpers.h"
 #include "utils/Blur.h"
 
+#include <cmath>
+#include <mutex>
+#include <unordered_map>
+
 using namespace android::uirenderer;
+
+namespace {
+
+struct LayerScaledBlurEffect {
+    float radiusX;
+    float radiusY;
+    int edgeTreatment;
+    std::unordered_map<int, sk_sp<SkImageFilter>> scaledFilters;
+};
+
+std::mutex gLayerScaledBlurEffectMutex;
+std::unordered_map<const SkImageFilter*, LayerScaledBlurEffect> gLayerScaledBlurEffects;
+
+void registerLayerScaledBlurRenderEffect(
+        const SkImageFilter* filter, float radiusX, float radiusY, int edgeTreatment) {
+    if (filter == nullptr) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(gLayerScaledBlurEffectMutex);
+    gLayerScaledBlurEffects[filter] = {radiusX, radiusY, edgeTreatment, {}};
+}
+
+void unregisterLayerScaledBlurRenderEffect(const SkImageFilter* filter) {
+    if (filter == nullptr) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(gLayerScaledBlurEffectMutex);
+    gLayerScaledBlurEffects.erase(filter);
+}
+
+int layerScaleKey(float layerScale) {
+    return static_cast<int>(std::round(layerScale * 1000.0f));
+}
+
+}
+
+namespace android {
+namespace uirenderer {
+
+bool isLayerScaledBlurRenderEffect(const SkImageFilter* filter) {
+    if ((Properties::renderEffectLayerScale >= 1.0f &&
+         Properties::renderEffectLargeLayerScale >= 1.0f) || filter == nullptr) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(gLayerScaledBlurEffectMutex);
+    return gLayerScaledBlurEffects.find(filter) != gLayerScaledBlurEffects.end();
+}
+
+sk_sp<SkImageFilter> makeLayerScaledBlurRenderEffect(
+        const SkImageFilter* filter, float layerScale) {
+    if (filter == nullptr || layerScale <= 0.0f || layerScale >= 1.0f) {
+        return nullptr;
+    }
+    std::lock_guard<std::mutex> lock(gLayerScaledBlurEffectMutex);
+    auto it = gLayerScaledBlurEffects.find(filter);
+    if (it == gLayerScaledBlurEffects.end()) {
+        return nullptr;
+    }
+    const int scaleKey = layerScaleKey(layerScale);
+    auto scaledIt = it->second.scaledFilters.find(scaleKey);
+    if (scaledIt != it->second.scaledFilters.end()) {
+        return scaledIt->second;
+    }
+    sk_sp<SkImageFilter> scaledFilter = SkImageFilters::Blur(
+            Blur::convertRadiusToSigma(it->second.radiusX * layerScale),
+            Blur::convertRadiusToSigma(it->second.radiusY * layerScale),
+            static_cast<SkTileMode>(it->second.edgeTreatment), nullptr, nullptr);
+    it->second.scaledFilters[scaleKey] = scaledFilter;
+    return scaledFilter;
+}
+
+}
+}
 
 static jlong createOffsetEffect(
     JNIEnv* env,
@@ -39,14 +117,23 @@ static jlong createOffsetEffect(
 static jlong createBlurEffect(JNIEnv* env , jobject, jfloat radiusX,
         jfloat radiusY, jlong inputFilterHandle, jint edgeTreatment) {
     auto* inputImageFilter = reinterpret_cast<SkImageFilter*>(inputFilterHandle);
+    const bool useLayerScale = inputImageFilter == nullptr &&
+            (Properties::renderEffectLayerScale < 1.0f ||
+             Properties::renderEffectLargeLayerScale < 1.0f);
+    const float filterScale = useLayerScale && Properties::renderEffectLayerScale < 1.0f
+            ? Properties::renderEffectLayerScale : 1.0f;
     sk_sp<SkImageFilter> blurFilter =
             SkImageFilters::Blur(
-                    Blur::convertRadiusToSigma(radiusX),
-                    Blur::convertRadiusToSigma(radiusY),
+                    Blur::convertRadiusToSigma(radiusX * filterScale),
+                    Blur::convertRadiusToSigma(radiusY * filterScale),
                     static_cast<SkTileMode>(edgeTreatment),
                     sk_ref_sp(inputImageFilter),
                     nullptr);
-    return reinterpret_cast<jlong>(blurFilter.release());
+    SkImageFilter* filter = blurFilter.release();
+    if (useLayerScale) {
+        registerLayerScaledBlurRenderEffect(filter, radiusX, radiusY, edgeTreatment);
+    }
+    return reinterpret_cast<jlong>(filter);
 }
 
 static jlong createBitmapEffect(
@@ -157,6 +244,7 @@ static jlong createRuntimeShaderEffect(JNIEnv* env, jobject, jlong shaderBuilder
 }
 
 static void RenderEffect_safeUnref(SkImageFilter* filter) {
+    unregisterLayerScaledBlurRenderEffect(filter);
     SkSafeUnref(filter);
 }
 

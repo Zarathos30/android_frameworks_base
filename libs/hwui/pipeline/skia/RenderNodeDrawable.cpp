@@ -248,6 +248,19 @@ void RenderNodeDrawable::drawContent(SkCanvas* canvas) const {
             sk_sp<SkImage> snapshotImage;
             auto* imageFilter = layerProperties.getImageFilter();
             auto recordingContext = canvas->recordingContext();
+            const float layerScale = renderNode->getSkiaLayer()->renderScale;
+            sk_sp<SkImageFilter> scaledImageFilter;
+            if (imageFilter != nullptr && layerScale < 1.0f) {
+                scaledImageFilter = makeLayerScaledBlurRenderEffect(imageFilter, layerScale);
+                if (scaledImageFilter != nullptr) {
+                    imageFilter = scaledImageFilter.get();
+                }
+            }
+            if (layerScale < 1.0f) {
+                srcBounds = SkIRect::MakeWH(
+                        getScaledLayerContentSize(bounds.width(), layerScale),
+                        getScaledLayerContentSize(bounds.height(), layerScale));
+            }
             // On some GL vendor implementations, caching the result of
             // getLayerSurface->makeImageSnapshot() causes a call to
             // Fence::waitForever without a corresponding signal. This would
@@ -260,38 +273,41 @@ void RenderNodeDrawable::drawContent(SkCanvas* canvas) const {
                 snapshotImage = renderNode->getLayerSurface()->makeImageSnapshot();
                 if (imageFilter) {
                     auto subset = SkIRect::MakeWH(srcBounds.width(), srcBounds.height());
+                    auto scaledClipBounds = scaleLayerRectOut(clipBounds.roundOut(), layerScale);
 
 #ifdef __ANDROID__
                     if (recordingContext) {
                         snapshotImage = SkImages::MakeWithFilter(
                                 recordingContext, snapshotImage, imageFilter, subset,
-                                clipBounds.roundOut(), &srcBounds, &offset);
+                                scaledClipBounds, &srcBounds, &offset);
                     } else
 #endif
                     {
                         snapshotImage = SkImages::MakeWithFilter(snapshotImage, imageFilter, subset,
-                                                                 clipBounds.roundOut(), &srcBounds,
+                                                                 scaledClipBounds, &srcBounds,
                                                                  &offset);
                     }
                 }
             } else {
                 const auto snapshotResult = renderNode->updateSnapshotIfRequired(
-                        recordingContext, layerProperties.getImageFilter(), clipBounds.roundOut());
+                        recordingContext, imageFilter, clipBounds.roundOut());
                 snapshotImage = snapshotResult->snapshot;
                 srcBounds = snapshotResult->outSubset;
                 offset = snapshotResult->outOffset;
             }
 
-            const auto dstBounds = SkIRect::MakeXYWH(offset.x(),
-                                                     offset.y(),
-                                                     srcBounds.width(),
-                                                     srcBounds.height());
+            const SkRect dstBounds = layerScale < 1.0f
+                    ? SkRect::MakeXYWH(offset.x() / layerScale, offset.y() / layerScale,
+                                       srcBounds.width() / layerScale,
+                                       srcBounds.height() / layerScale)
+                    : SkRect::MakeXYWH(offset.x(), offset.y(), srcBounds.width(),
+                                       srcBounds.height());
             SkSamplingOptions sampling(SkFilterMode::kLinear);
 
             // surfaces for layers are created on LAYER_SIZE boundaries (which are >= layer size) so
             // we need to restrict the portion of the surface drawn to the size of the renderNode.
-            SkASSERT(renderNode->getLayerSurface()->width() >= bounds.width());
-            SkASSERT(renderNode->getLayerSurface()->height() >= bounds.height());
+            SkASSERT(renderNode->getLayerSurface()->width() >= srcBounds.width());
+            SkASSERT(renderNode->getLayerSurface()->height() >= srcBounds.height());
 
             // If SKP recording is active save an annotation that indicates this drawImageRect
             // could also be rendered with the commands saved at ID associated with this node.
@@ -314,7 +330,7 @@ void RenderNodeDrawable::drawContent(SkCanvas* canvas) const {
                     canvas->restore();
                 }
                 canvas->drawImageRect(snapshotImage, SkRect::Make(srcBounds),
-                                      SkRect::Make(dstBounds), sampling, &paint,
+                                      dstBounds, sampling, &paint,
                                       SkCanvas::kStrict_SrcRectConstraint);
             } else {
                 // If we do have stretch effects and have hole punches,
@@ -345,7 +361,7 @@ void RenderNodeDrawable::drawContent(SkCanvas* canvas) const {
                 sk_sp<SkShader> stretchShader =
                         stretch.getShader(bounds.width(), bounds.height(), snapshotImage, &matrix);
                 paint.setShader(stretchShader);
-                canvas->drawRect(SkRect::Make(dstBounds), paint);
+                canvas->drawRect(dstBounds, paint);
             }
 
             if (!renderNode->getSkiaLayer()->hasRenderedSinceRepaint) {

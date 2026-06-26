@@ -19,6 +19,7 @@
 #include <SkCanvas.h>
 #include <SkDrawable.h>
 #include <SkPaint.h>
+#include <SkSurface.h>
 
 namespace android {
 namespace uirenderer {
@@ -41,6 +42,7 @@ public:
 
 private:
     RenderNode* mTargetRenderNode;
+    sk_sp<SkSurface> mScaledBackdropSurface;
 
 protected:
     void onDraw(SkCanvas* canvas) override;

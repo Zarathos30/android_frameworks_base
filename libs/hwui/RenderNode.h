@@ -358,6 +358,8 @@ public:
         return mSkiaLayer.get() ? mSkiaLayer->layerSurface.get() : nullptr;
     }
 
+    float inheritedRenderEffectLayerScale() const { return mInheritedRenderEffectLayerScale; }
+
     struct SnapshotResult {
         sk_sp<SkImage> snapshot;
         SkIRect outSubset;
@@ -397,6 +399,8 @@ private:
      * when it has been set to draw as a LayerType::RenderLayer.
      */
     std::unique_ptr<skiapipeline::SkiaLayer> mSkiaLayer;
+    float mInheritedRenderEffectLayerScale = 1.0f;
+    bool mFlattenRenderEffectChildLayer = false;
 
     /**
      * SkImageFilter used to create the mSnapshotResult

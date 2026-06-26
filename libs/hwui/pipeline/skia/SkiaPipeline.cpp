@@ -90,7 +90,12 @@ bool SkiaPipeline::renderLayerImpl(RenderNode* layerNode, const Rect& layerDamag
     SkASSERT(layerCanvas->getSaveCount() == 1);
     SkAutoCanvasRestore saver(layerCanvas, true);
 
-    layerCanvas->androidFramework_setDeviceClipRestriction(layerDamage.toSkIRect());
+    const float layerScale = layerNode->getSkiaLayer()->renderScale;
+    layerCanvas->androidFramework_setDeviceClipRestriction(
+            scaleLayerRectOut(layerDamage.toSkIRect(), layerScale));
+    if (layerScale < 1.0f) {
+        layerCanvas->scale(layerScale, layerScale);
+    }
 
     AutoLightingInfoRestore restoreLightingInfo(layerNode);
     const RenderProperties& properties = layerNode->properties();
