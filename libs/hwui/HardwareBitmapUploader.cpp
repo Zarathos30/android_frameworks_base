@@ -27,6 +27,7 @@
 #include <SkImageAndroid.h>
 #include <SkImageInfo.h>
 #include <SkRefCnt.h>
+#include <SkSamplingOptions.h>
 #include <gui/TraceUtils.h>
 #include <include/gpu/ganesh/GrDirectContext.h>
 #include <include/gpu/ganesh/GrTypes.h>
@@ -35,6 +36,7 @@
 #include <utils/Trace.h>
 
 #include "hwui/Bitmap.h"
+#include "Properties.h"
 #include "renderthread/EglManager.h"
 #include "renderthread/VulkanManager.h"
 #include "thread/ThreadBase.h"
@@ -424,6 +426,23 @@ static SkBitmap makeHwCompatible(const FormatInfo& format, const SkBitmap& sourc
     }
 }
 
+static SkBitmap makeScaledHardwareBitmap(const SkBitmap& source) {
+    int width = source.width();
+    int height = source.height();
+    if (Properties::applyHardwareBitmapScale(&width, &height) == 1.0f) {
+        return source;
+    }
+    SkBitmap bitmap;
+    if (!bitmap.tryAllocPixels(source.info().makeDimensions(SkISize::Make(width, height)))) {
+        return source;
+    }
+    const SkSamplingOptions sampling(SkFilterMode::kLinear, SkMipmapMode::kNone);
+    if (!source.pixmap().scalePixels(bitmap.pixmap(), sampling)) {
+        return source;
+    }
+    bitmap.setImmutable();
+    return bitmap;
+}
 
 static void createUploader(bool usingGL) {
     static std::mutex lock;
@@ -448,7 +467,7 @@ sk_sp<Bitmap> HardwareBitmapUploader::allocateHardwareBitmap(const SkBitmap& sou
         return nullptr;
     }
 
-    SkBitmap bitmap = makeHwCompatible(format, sourceBitmap);
+    SkBitmap bitmap = makeScaledHardwareBitmap(makeHwCompatible(format, sourceBitmap));
     AHardwareBuffer_Desc desc = {
             .width = static_cast<uint32_t>(bitmap.width()),
             .height = static_cast<uint32_t>(bitmap.height()),

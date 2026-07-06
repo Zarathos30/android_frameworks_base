@@ -148,6 +148,8 @@ enum DebugLevel {
 #define PROPERTY_RENDER_EFFECT_TEXTURE_PREFETCH_SUBTREE_MIN_AREA "persist.sys.hwui.re_pf_sarea"
 #define PROPERTY_BITMAP_DECODE_SCALE "persist.sys.hwui.bmp_scale"
 #define PROPERTY_BITMAP_DECODE_MIN_AREA "persist.sys.hwui.bmp_area"
+#define PROPERTY_HARDWARE_BITMAP_SCALE "persist.sys.hwui.hwbmp_scale"
+#define PROPERTY_HARDWARE_BITMAP_MIN_AREA "persist.sys.hwui.hwbmp_area"
 
 /**
  * Allows to collect a recording of Skia drawing commands.
@@ -349,6 +351,9 @@ public:
     static float bitmapDecodeScale;
     static int bitmapDecodeMinArea;
     static float applyBitmapDecodeScale(int* width, int* height);
+    static float hardwareBitmapScale;
+    static int hardwareBitmapMinArea;
+    static float applyHardwareBitmapScale(int* width, int* height);
 
     // Used for testing only to change the render pipeline.
     static void overrideRenderPipelineType(RenderPipelineType);

@@ -96,6 +96,8 @@ int Properties::renderEffectTexturePrefetchMinArea = 0;
 int Properties::renderEffectTexturePrefetchSubtreeMinArea = 0;
 float Properties::bitmapDecodeScale = 1.0f;
 int Properties::bitmapDecodeMinArea = 0;
+float Properties::hardwareBitmapScale = 1.0f;
+int Properties::hardwareBitmapMinArea = 0;
 
 bool Properties::runningInEmulator = false;
 bool Properties::debuggingEnabled = false;
@@ -233,6 +235,15 @@ bool Properties::load() {
     if (bitmapDecodeMinArea < 0 || bitmapDecodeScale == 1.0f) {
         bitmapDecodeMinArea = 0;
     }
+    hardwareBitmapScale =
+            (float)atof(base::GetProperty(PROPERTY_HARDWARE_BITMAP_SCALE, "1").c_str());
+    if (hardwareBitmapScale < 0.5f || hardwareBitmapScale >= 1.0f) {
+        hardwareBitmapScale = 1.0f;
+    }
+    hardwareBitmapMinArea = base::GetIntProperty(PROPERTY_HARDWARE_BITMAP_MIN_AREA, 0);
+    if (hardwareBitmapMinArea < 0 || hardwareBitmapScale == 1.0f) {
+        hardwareBitmapMinArea = 0;
+    }
     hdr10bitPlus = hwui_flags::hdr_10bit_plus();
 
     timeoutMultiplier = android::base::GetIntProperty("ro.hw_timeout_multiplier", 1);
@@ -242,23 +253,31 @@ bool Properties::load() {
     return (prevDebugLayersUpdates != debugLayersUpdates) || (prevDebugOverdraw != debugOverdraw);
 }
 
-float Properties::applyBitmapDecodeScale(int* width, int* height) {
+static float applyBitmapScale(int* width, int* height, float scale, int minArea) {
     if (width == nullptr || height == nullptr || *width <= 0 || *height <= 0) {
         return 1.0f;
     }
 
-    if (bitmapDecodeMinArea <= 0 || bitmapDecodeScale == 1.0f) {
+    if (minArea <= 0 || scale == 1.0f) {
         return 1.0f;
     }
 
     const int64_t area = static_cast<int64_t>(*width) * *height;
-    if (area < bitmapDecodeMinArea) {
+    if (area < minArea) {
         return 1.0f;
     }
 
-    *width = std::max(1, static_cast<int>(*width * bitmapDecodeScale + 0.5f));
-    *height = std::max(1, static_cast<int>(*height * bitmapDecodeScale + 0.5f));
-    return bitmapDecodeScale;
+    *width = std::max(1, static_cast<int>(*width * scale + 0.5f));
+    *height = std::max(1, static_cast<int>(*height * scale + 0.5f));
+    return scale;
+}
+
+float Properties::applyBitmapDecodeScale(int* width, int* height) {
+    return applyBitmapScale(width, height, bitmapDecodeScale, bitmapDecodeMinArea);
+}
+
+float Properties::applyHardwareBitmapScale(int* width, int* height) {
+    return applyBitmapScale(width, height, hardwareBitmapScale, hardwareBitmapMinArea);
 }
 
 void Properties::overrideProperty(const char* name, const char* value) {
