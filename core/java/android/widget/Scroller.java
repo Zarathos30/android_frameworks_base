@@ -16,6 +16,7 @@
 
 package android.widget;
 
+import android.app.AxBurstEngine;
 import android.companion.virtualdevice.flags.Flags;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
@@ -86,6 +87,7 @@ public class Scroller  {
     private float mDeltaY;
     private boolean mFinished;
     private boolean mFlywheel;
+    private boolean mBurstActive;
 
     private float mVelocity;
     private float mCurrVelocity;
@@ -201,7 +203,27 @@ public class Scroller  {
         mDeceleration = computeDeceleration(friction);
         mFlingFriction = friction;
     }
-    
+
+    private void startBurst(long duration) {
+        if (duration <= 0) {
+            finishBurst();
+            return;
+        }
+        AxBurstEngine.prepareForAnim(duration);
+        if (!mBurstActive) {
+            mBurstActive = true;
+            AxBurstEngine.onAnimationStart(duration);
+        }
+    }
+
+    private void finishBurst() {
+        if (!mBurstActive) {
+            return;
+        }
+        mBurstActive = false;
+        AxBurstEngine.onAnimationEnd();
+    }
+
     private float computeDeceleration(float friction) {
         return SensorManager.GRAVITY_EARTH   // g (m/s^2)
                       * 39.37f               // inch/meter
@@ -226,6 +248,9 @@ public class Scroller  {
      */
     public final void forceFinished(boolean finished) {
         mFinished = finished;
+        if (finished) {
+            finishBurst();
+        }
     }
     
     /**
@@ -308,6 +333,7 @@ public class Scroller  {
      */ 
     public boolean computeScrollOffset() {
         if (mFinished) {
+            finishBurst();
             return false;
         }
 
@@ -358,6 +384,9 @@ public class Scroller  {
             mCurrY = mFinalY;
             mFinished = true;
         }
+        if (mFinished) {
+            finishBurst();
+        }
         return true;
     }
     
@@ -405,6 +434,7 @@ public class Scroller  {
         mDeltaX = dx;
         mDeltaY = dy;
         mDurationReciprocal = 1.0f / (float) mDuration;
+        startBurst(mDuration);
     }
 
     /**
@@ -479,6 +509,7 @@ public class Scroller  {
         // Pin to mMinY <= mFinalY <= mMaxY
         mFinalY = Math.min(mFinalY, mMaxY);
         mFinalY = Math.max(mFinalY, mMinY);
+        startBurst(mDuration);
     }
     
     private double getSplineDeceleration(float velocity) {
@@ -508,6 +539,7 @@ public class Scroller  {
         mCurrX = mFinalX;
         mCurrY = mFinalY;
         mFinished = true;
+        finishBurst();
     }
     
     /**

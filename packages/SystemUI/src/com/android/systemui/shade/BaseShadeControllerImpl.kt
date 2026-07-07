@@ -16,6 +16,7 @@
 
 package com.android.systemui.shade
 
+import android.app.AxBurstEngine
 import com.android.keyguard.KeyguardViewController
 import com.android.systemui.assist.AssistManager
 import com.android.systemui.statusbar.CommandQueue
@@ -40,6 +41,7 @@ abstract class BaseShadeControllerImpl(
 
     final override fun animateExpandShade() {
         if (isShadeEnabled) {
+            AxBurstEngine.prepareForAnim()
             expandToNotifications()
         }
     }
@@ -49,6 +51,7 @@ abstract class BaseShadeControllerImpl(
 
     final override fun animateExpandQs() {
         if (isShadeEnabled) {
+            AxBurstEngine.prepareForAnim()
             expandToQs()
         }
     }

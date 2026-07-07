@@ -1065,4 +1065,11 @@ interface IActivityManager {
     
     AxKernelMetrics getAxKernelMetrics(long previousCpuActiveTimeTicks,
             long previousCpuTimeTicks);
+
+    oneway void onFrameRescue(int source, int level, long actualDurationNs,
+            long targetDurationNs, int durationMs);
+
+    oneway void onUiAnimationPrepared(long durationMs);
+    oneway void onUiAnimationStarted(long durationMs);
+    oneway void onUiAnimationFinished();
 }

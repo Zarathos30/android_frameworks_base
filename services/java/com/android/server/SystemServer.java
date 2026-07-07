@@ -126,6 +126,7 @@ import com.android.server.accounts.AccountManagerService;
 import com.android.server.adb.AdbService;
 import com.android.server.alarm.AlarmManagerService;
 import com.android.server.am.ActivityManagerService;
+import com.android.server.am.AxBurstEngineImpl;
 import com.android.server.ambientcontext.AmbientContextManagerService;
 import com.android.server.app.GameManagerService;
 import com.android.server.appbinding.AppBindingService;
@@ -138,6 +139,7 @@ import com.android.server.appwidget.AppWidgetService;
 import com.android.server.appwindowlayout.AppWindowLayoutSettingsService;
 import com.android.server.art.ArtModuleServiceInitializer;
 import com.android.server.art.DexUseManagerLocal;
+import com.android.server.axperf.AxFrameRescueService;
 import com.android.server.attention.AttentionManagerService;
 import com.android.server.audio.AudioService;
 import com.android.server.autofill.AutofillManagerService;
@@ -1312,6 +1314,14 @@ public final class SystemServer implements Dumpable {
 
         t.traceBegin("StartAxAdvancedThermalMitigation");
         mSystemServiceManager.startService(AxAdvancedThermalMitigationService.class);
+        t.traceEnd();
+
+        t.traceBegin("StartAxFrameRescue");
+        mSystemServiceManager.startService(AxFrameRescueService.class);
+        t.traceEnd();
+
+        t.traceBegin("StartAxBurstEngine");
+        mSystemServiceManager.startService(AxBurstEngineImpl.class);
         t.traceEnd();
 
         // Now that the power manager has been started, let the activity manager

@@ -86,6 +86,7 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.os.BinderfsStatsReader;
 import com.android.internal.os.ProcLocksReader;
 import com.android.internal.util.FrameworkStatsLog;
+import com.android.server.LocalServices;
 import com.android.server.ServiceThread;
 import com.android.server.am.compaction.CompactionStatsManager;
 import com.android.server.am.compaction.SingleCompactionStats;
@@ -265,6 +266,7 @@ public class CachedAppOptimizer {
 
     private static final String ATRACE_COMPACTION_TRACK = "Compaction";
     public static final String ATRACE_FREEZER_TRACK = "Freezer";
+    private static final long UI_COMPACTION_DEFER_MS = 350L;
 
     private static final int FREEZE_BINDER_TIMEOUT_MS = 0;
     private static final int FREEZE_DEADLOCK_TIMEOUT_MS = 1000;
@@ -1701,6 +1703,9 @@ public class CachedAppOptimizer {
 
         @Override
         public void handleMessage(Message msg) {
+            if (deferCompactionForUi(msg)) {
+                return;
+            }
             switch (msg.what) {
                 case COMPACT_PROCESS_MSG: {
                     long start = SystemClock.uptimeMillis();
@@ -1895,6 +1900,20 @@ public class CachedAppOptimizer {
                     break;
                 }
             }
+        }
+
+        private boolean deferCompactionForUi(Message msg) {
+            if (!shouldDeferCompactionForUi()) {
+                return false;
+            }
+            sendMessageDelayed(obtainMessage(msg.what, msg.arg1, msg.arg2, msg.obj),
+                    UI_COMPACTION_DEFER_MS);
+            return true;
+        }
+
+        private boolean shouldDeferCompactionForUi() {
+            final AxBurstEngineImpl engine = LocalServices.getService(AxBurstEngineImpl.class);
+            return engine != null && engine.isUiPerfActive();
         }
     }
 

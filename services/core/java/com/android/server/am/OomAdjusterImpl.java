@@ -640,6 +640,7 @@ public class OomAdjusterImpl extends OomAdjuster {
                 && app.mLinkedNodes[ProcessRecordNode.NODE_TYPE_PROC_STATE].isLinked()) {
             unlinkProcessRecordFromList(app);
         }
+        notifyAxBurstProcessEnded(app);
     }
 
     @GuardedBy("mService")
@@ -2251,6 +2252,13 @@ public class OomAdjusterImpl extends OomAdjuster {
         AxAdvancedThermalMitigationProducer producer = service.getProducer();
         if (producer != null) {
             producer.onTopAppChanged(app.getPid(), app.getPackageName());
+        }
+    }
+
+    private static void notifyAxBurstProcessEnded(ProcessRecordInternal app) {
+        final AxBurstEngineImpl engine = LocalServices.getService(AxBurstEngineImpl.class);
+        if (engine != null) {
+            engine.onProcessEnded(app);
         }
     }
 

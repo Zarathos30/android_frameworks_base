@@ -140,6 +140,7 @@ import android.util.proto.ProtoOutputStream;
 import com.android.internal.annotations.CompositeRWLock;
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.server.LocalServices;
 import com.android.server.ServiceThread;
 import com.android.server.am.psc.ActiveUidsInternal;
 import com.android.server.am.psc.ConnectionRecordInternal;
@@ -509,10 +510,11 @@ public abstract class OomAdjuster {
         mLogger = new OomAdjusterDebugLogger(this, mService.mConstants);
 
         mProcessGroupHandler = new Handler(adjusterThread.getLooper(), msg -> {
-            final int group = msg.what;
             final ProcessRecord app = (ProcessRecord) msg.obj;
+            final int group = msg.what;
             setProcessGroup(app.getPid(), group, app.processName);
             mService.mPhantomProcessList.setProcessGroupForPhantomProcessOfApp(app, group);
+            notifyAxBurstProcessGroupChanged(app, group);
             return true;
         });
         mTmpUidRecords = new ActiveUids(null);
@@ -532,7 +534,7 @@ public abstract class OomAdjuster {
                     + processName + " to " + group);
         }
         try {
-            android.os.Process.setProcessGroup(pid, group);
+            Process.setProcessGroup(pid, group);
         } catch (Exception e) {
             if (DEBUG_ALL) {
                 Slog.w(TAG, "Failed setting process group of " + pid + " to " + group, e);
@@ -544,9 +546,20 @@ public abstract class OomAdjuster {
         }
     }
 
+    @GuardedBy("mProcLock")
     void setAppAndChildProcessGroup(ProcessRecordInternal app, int group) {
-        mProcessGroupHandler.sendMessage(mProcessGroupHandler.obtainMessage(
-                group, app));
+        if (app.getSetProcessGroup() == group) {
+            return;
+        }
+        app.setSetProcessGroup(group);
+        mProcessGroupHandler.sendMessage(mProcessGroupHandler.obtainMessage(group, app));
+    }
+
+    private void notifyAxBurstProcessGroupChanged(ProcessRecordInternal app, int group) {
+        final AxBurstEngineImpl engine = LocalServices.getService(AxBurstEngineImpl.class);
+        if (engine != null) {
+            engine.onProcessGroupChanged(app, group);
+        }
     }
 
     /**
@@ -2125,25 +2138,7 @@ public abstract class OomAdjuster {
                         + " to " + curSchedGroup + ": " + state.getAdjType();
                 reportOomAdjMessageLocked(TAG_OOM_ADJ, msg);
             }
-            int processGroup;
-            switch (curSchedGroup) {
-                case SCHED_GROUP_BACKGROUND:
-                    processGroup = THREAD_GROUP_BACKGROUND;
-                    break;
-                case SCHED_GROUP_TOP_APP:
-                case SCHED_GROUP_TOP_APP_BOUND:
-                    processGroup = THREAD_GROUP_TOP_APP;
-                    break;
-                case SCHED_GROUP_RESTRICTED:
-                    processGroup = THREAD_GROUP_RESTRICTED;
-                    break;
-                case SCHED_GROUP_FOREGROUND_WINDOW:
-                    processGroup = THREAD_GROUP_FOREGROUND_WINDOW;
-                    break;
-                default:
-                    processGroup = THREAD_GROUP_DEFAULT;
-                    break;
-            }
+            int processGroup = AxBurstEngineImpl.mapProcessGroup(state, curSchedGroup);
             setAppAndChildProcessGroup(state, processGroup);
             try {
                 final int renderThreadTid = state.getRenderThreadTid();

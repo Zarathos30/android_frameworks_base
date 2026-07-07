@@ -753,6 +753,7 @@ public final class AnimatorSet extends Animator implements AnimationHandler.Anim
         // Now that all dependencies are set up, start the animations that should be started.
         boolean isEmptySet = isEmptySet(this);
         if (!isEmptySet) {
+            prepareAnimationStart();
             startAnimation();
         }
 

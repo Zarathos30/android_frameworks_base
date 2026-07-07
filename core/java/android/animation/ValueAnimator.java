@@ -1343,6 +1343,7 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
      * called on the UI thread.
      */
     private void startAnimation() {
+        prepareAnimationStart();
         if (Trace.isTagEnabled(Trace.TRACE_TAG_VIEW)) {
             Trace.asyncTraceBegin(Trace.TRACE_TAG_VIEW, getNameForTrace(),
                     System.identityHashCode(this));

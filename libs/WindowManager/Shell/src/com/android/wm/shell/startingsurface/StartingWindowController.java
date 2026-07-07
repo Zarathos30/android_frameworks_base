@@ -27,6 +27,7 @@ import static android.window.TransitionInfo.FLAG_IS_BEHIND_STARTING_WINDOW;
 
 import android.annotation.NonNull;
 import android.app.ActivityManager.RunningTaskInfo;
+import android.app.AxBurstEngine;
 import android.app.TaskInfo;
 import android.content.Context;
 import android.graphics.Color;
@@ -88,6 +89,8 @@ public class StartingWindowController implements RemoteCallable<StartingWindowCo
 
     private static final long TASK_BG_COLOR_RETAIN_TIME_MS = 5000;
     static final long UNCERTAIN_TRANSITION_TIMEOUT_MS = 2000;
+    private static final long STARTING_WINDOW_ADD_PREWARM_MS = 1200L;
+    private static final long STARTING_WINDOW_REMOVE_PREWARM_MS = 900L;
 
     private final StartingSurfaceDrawer mStartingSurfaceDrawer;
     private final StartingWindowTypeAlgorithm mStartingWindowTypeAlgorithm;
@@ -395,6 +398,9 @@ public class StartingWindowController implements RemoteCallable<StartingWindowCo
             final RunningTaskInfo runningTaskInfo = windowInfo.taskInfo;
             final int taskId = runningTaskInfo.taskId;
             final boolean isWindowless = suggestionType == STARTING_WINDOW_TYPE_WINDOWLESS;
+            if (suggestionType != STARTING_WINDOW_TYPE_NONE) {
+                AxBurstEngine.prepareForAnim(STARTING_WINDOW_ADD_PREWARM_MS);
+            }
             if (isWindowless) {
                 mStartingSurfaceDrawer.addWindowlessStartingSurface(windowInfo);
             } else if (isSplashScreenType(suggestionType)) {
@@ -456,6 +462,9 @@ public class StartingWindowController implements RemoteCallable<StartingWindowCo
      */
     public void removeStartingWindow(StartingWindowRemovalInfo removalInfo) {
         final int taskId = removalInfo.taskId;
+        if (!removalInfo.removeImmediately) {
+            AxBurstEngine.prepareForAnim(STARTING_WINDOW_REMOVE_PREWARM_MS);
+        }
         mShellMainExecutor.execute(() ->
                 mRemoveStartingObserver.requestRemoval(taskId, removalInfo));
     }

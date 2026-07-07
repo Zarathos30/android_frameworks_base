@@ -22,6 +22,8 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.Activity;
 import android.app.ActivityManager;
+import android.app.AxFrameRescue;
+import android.app.IActivityManager;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
@@ -1117,6 +1119,7 @@ public class HardwareRenderer {
      * @hide
      */
     public void notifyExpensiveFrame() {
+        AxFrameRescue.notifyExpensiveFrame();
         nNotifyExpensiveFrame(mNativeProxy);
     }
 
@@ -1141,6 +1144,7 @@ public class HardwareRenderer {
     }
 
     private void notifyGpuLoadUp() {
+        AxFrameRescue.notifyGpuLoadUp();
         nNotifyGpuLoadUp(mNativeProxy);
     }
 
@@ -1434,8 +1438,9 @@ public class HardwareRenderer {
 
         private void initSched(long renderProxy) {
             try {
+                final IActivityManager am = ActivityManager.getService();
                 int tid = nGetRenderThreadTid(renderProxy);
-                ActivityManager.getService().setRenderThread(tid);
+                am.setRenderThread(tid);
             } catch (Throwable t) {
                 Log.w(LOG_TAG, "Failed to set scheduler for RenderThread", t);
             }
@@ -1604,6 +1609,7 @@ public class HardwareRenderer {
     private static native void nSetProcessStatsBuffer(int fd);
 
     private static native int nGetRenderThreadTid(long nativeProxy);
+
 
     private static native long nCreateRootRenderNode();
 

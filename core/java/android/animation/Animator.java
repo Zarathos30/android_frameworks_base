@@ -20,6 +20,7 @@ import android.annotation.CallSuper;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.TestApi;
+import android.app.AxBurstEngine;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.pm.ActivityInfo.Config;
 import android.content.res.ConstantState;
@@ -100,6 +101,8 @@ public abstract class Animator implements Cloneable {
      * startDelay and whether start() was called before end().
      */
     boolean mStartListenersCalled = false;
+
+    private long mAxAnimationDuration = 0;
 
     /**
      * Sets the duration for delaying pausing animators when apps go into the background.
@@ -486,6 +489,7 @@ public abstract class Animator implements Cloneable {
             }
             anim.mCachedList.set(null);
             anim.mStartListenersCalled = false;
+            anim.mAxAnimationDuration = 0;
             return anim;
         } catch (CloneNotSupportedException e) {
            throw new AssertionError();
@@ -650,19 +654,30 @@ public abstract class Animator implements Cloneable {
         callOnList(mPauseListeners, notification, this, false);
     }
 
+    void prepareAnimationStart() {
+        mAxAnimationDuration = getTotalDuration();
+        AxBurstEngine.prepareForAnim(mAxAnimationDuration);
+    }
+
     void notifyStartListeners(boolean isReversing) {
         boolean startListenersCalled = mStartListenersCalled;
         mStartListenersCalled = true;
-        if (mListeners != null && !startListenersCalled) {
-            notifyListeners(AnimatorCaller.ON_START, isReversing);
+        if (!startListenersCalled) {
+            AxBurstEngine.onAnimationStart(mAxAnimationDuration);
+            if (mListeners != null) {
+                notifyListeners(AnimatorCaller.ON_START, isReversing);
+            }
         }
     }
 
     void notifyEndListeners(boolean isReversing) {
         boolean startListenersCalled = mStartListenersCalled;
         mStartListenersCalled = false;
-        if (mListeners != null && startListenersCalled) {
-            notifyListeners(AnimatorCaller.ON_END, isReversing);
+        if (startListenersCalled) {
+            AxBurstEngine.onAnimationEnd();
+            if (mListeners != null) {
+                notifyListeners(AnimatorCaller.ON_END, isReversing);
+            }
         }
     }
 

@@ -16,6 +16,7 @@
 
 package android.widget;
 
+import android.app.AxBurstEngine;
 import android.companion.virtualdevice.flags.Flags;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
@@ -42,6 +43,7 @@ public class OverScroller {
     private Interpolator mInterpolator;
 
     private final boolean mFlywheel;
+    private boolean mBurstActive;
 
     private static final int DEFAULT_DURATION = 250;
     private static final int SCROLL_MODE = 0;
@@ -143,6 +145,26 @@ public class OverScroller {
         mScrollerY.setFriction(friction);
     }
 
+    private void startBurst(long duration) {
+        if (duration <= 0) {
+            finishBurst();
+            return;
+        }
+        AxBurstEngine.prepareForAnim(duration);
+        if (!mBurstActive) {
+            mBurstActive = true;
+            AxBurstEngine.onAnimationStart(duration);
+        }
+    }
+
+    private void finishBurst() {
+        if (!mBurstActive) {
+            return;
+        }
+        mBurstActive = false;
+        AxBurstEngine.onAnimationEnd();
+    }
+
     /**
      *
      * Returns whether the scroller has finished scrolling.
@@ -163,6 +185,9 @@ public class OverScroller {
      */
     public final void forceFinished(boolean finished) {
         mScrollerX.mFinished = mScrollerY.mFinished = finished;
+        if (finished) {
+            finishBurst();
+        }
     }
 
     /**
@@ -287,6 +312,7 @@ public class OverScroller {
      */
     public boolean computeScrollOffset() {
         if (isFinished()) {
+            finishBurst();
             return false;
         }
 
@@ -329,6 +355,9 @@ public class OverScroller {
                 break;
         }
 
+        if (isFinished()) {
+            finishBurst();
+        }
         return true;
     }
 
@@ -367,6 +396,7 @@ public class OverScroller {
         mMode = SCROLL_MODE;
         mScrollerX.startScroll(startX, dx, duration);
         mScrollerY.startScroll(startY, dy, duration);
+        startBurst(duration);
     }
 
     /**
@@ -387,6 +417,9 @@ public class OverScroller {
         // Make sure both methods are called.
         final boolean spingbackX = mScrollerX.springback(startX, minX, maxX);
         final boolean spingbackY = mScrollerY.springback(startY, minY, maxY);
+        if (spingbackX || spingbackY) {
+            startBurst(getDuration());
+        }
         return spingbackX || spingbackY;
     }
 
@@ -438,6 +471,7 @@ public class OverScroller {
         mMode = FLING_MODE;
         mScrollerX.fling(startX, velocityX, minX, maxX, overX);
         mScrollerY.fling(startY, velocityY, minY, maxY, overY);
+        startBurst(getDuration());
     }
 
     /**
@@ -455,6 +489,9 @@ public class OverScroller {
      */
     public void notifyHorizontalEdgeReached(int startX, int finalX, int overX) {
         mScrollerX.notifyEdgeReached(startX, finalX, overX);
+        if (!isFinished()) {
+            startBurst(getDuration());
+        }
     }
 
     /**
@@ -472,6 +509,9 @@ public class OverScroller {
      */
     public void notifyVerticalEdgeReached(int startY, int finalY, int overY) {
         mScrollerY.notifyEdgeReached(startY, finalY, overY);
+        if (!isFinished()) {
+            startBurst(getDuration());
+        }
     }
 
     /**
@@ -504,6 +544,7 @@ public class OverScroller {
     public void abortAnimation() {
         mScrollerX.finish();
         mScrollerY.finish();
+        finishBurst();
     }
 
     /**

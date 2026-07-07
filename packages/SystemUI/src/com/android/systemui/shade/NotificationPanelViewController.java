@@ -52,6 +52,7 @@ import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.app.AxBurstEngine;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.res.Configuration;
@@ -2057,6 +2058,9 @@ public final class NotificationPanelViewController implements
 
     public void expand(boolean animate) {
         if (isFullyCollapsed() || isCollapsing()) {
+            if (animate) {
+                AxBurstEngine.prepareForAnim();
+            }
             mInstantExpanding = true;
             mAnimateAfterExpanding = animate;
             mUpdateFlingOnLayout = false;
@@ -2844,6 +2848,7 @@ public final class NotificationPanelViewController implements
     @VisibleForTesting
     void notifyExpandingStarted() {
         if (!mExpanding) {
+            AxBurstEngine.prepareForAnim();
             DejankUtils.notifyRendererOfExpensiveFrame(mView, "notifyExpandingStarted");
             mExpanding = true;
             mIsExpandingOrCollapsing = true;

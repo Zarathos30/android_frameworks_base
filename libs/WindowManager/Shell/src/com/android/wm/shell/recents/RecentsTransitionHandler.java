@@ -49,6 +49,7 @@ import android.annotation.SuppressLint;
 import android.app.ActivityManager;
 import android.app.ActivityOptions;
 import android.app.ActivityTaskManager;
+import android.app.AxBurstEngine;
 import android.app.IApplicationThread;
 import android.app.PendingIntent;
 import android.content.Context;
@@ -957,10 +958,11 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
                 ProtoLog.v(ShellProtoLogGroup.WM_SHELL_RECENTS_TRANSITION,
                         "[%d] RecentsController.start: calling onAnimationStart with %d apps",
                         mInstanceId, apps.size());
-                mListener.onAnimationStart(this,
-                        apps.toArray(new RemoteAnimationTarget[apps.size()]),
-                        wallpapers.toArray(new RemoteAnimationTarget[wallpapers.size()]),
-                        new Rect(), b, info);
+                AxBurstEngine.withBinderUxFlagForRemote(AxBurstEngine.BINDER_UX_ENQUEUE,
+                        () -> mListener.onAnimationStart(this,
+                                apps.toArray(new RemoteAnimationTarget[apps.size()]),
+                                wallpapers.toArray(new RemoteAnimationTarget[wallpapers.size()]),
+                                new Rect(), b, info));
                 for (int i = 0; i < mStateListeners.size(); i++) {
                     mStateListeners.get(i).onTransitionStateChanged(TRANSITION_STATE_ANIMATING);
                 }
@@ -1014,17 +1016,18 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
                         "[%d] RecentsController.handOffAnimation: calling "
                                 + "takeOverAnimation with %d states", mInstanceId,
                         updatedStates.length);
-                mTakeoverHandler.takeOverAnimation(
-                        mTransition, mInfo, new SurfaceControl.Transaction(),
-                        wct -> {
-                            ProtoLog.v(ShellProtoLogGroup.WM_SHELL_RECENTS_TRANSITION,
-                                    "[%d] RecentsController.handOffAnimation: finish "
-                                            + "callback", mInstanceId);
-                            // Set the callback once again so we can finish correctly.
-                            mFinishCB = finishCB;
-                            finishInner(true /* toHome */, false /* userLeave */,
-                                    null /* finishCb */, "takeOverAnimation");
-                        }, updatedStates);
+                AxBurstEngine.withBinderUxFlag(AxBurstEngine.BINDER_UX_ENQUEUE,
+                        () -> mTakeoverHandler.takeOverAnimation(
+                                mTransition, mInfo, new SurfaceControl.Transaction(),
+                                wct -> {
+                                    ProtoLog.v(ShellProtoLogGroup.WM_SHELL_RECENTS_TRANSITION,
+                                            "[%d] RecentsController.handOffAnimation: finish "
+                                                    + "callback", mInstanceId);
+                                    // Set the callback once again so we can finish correctly.
+                                    mFinishCB = finishCB;
+                                    finishInner(true /* toHome */, false /* userLeave */,
+                                            null /* finishCb */, "takeOverAnimation");
+                                }, updatedStates));
             });
         }
 
@@ -1449,7 +1452,9 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
                             "[%d] RecentsController.merge: calling onTasksAppeared", mInstanceId);
                     final RemoteAnimationTarget[] targets = appearedTargets.toArray(
                             new RemoteAnimationTarget[0]);
-                    mListener.onTasksAppeared(targets, passTransitionInfo ? info : null);
+                    AxBurstEngine.withBinderUxFlagForRemote(AxBurstEngine.BINDER_UX_ENQUEUE,
+                            () -> mListener.onTasksAppeared(
+                                    targets, passTransitionInfo ? info : null));
                 } catch (RemoteException e) {
                     Slog.e(TAG, "Error sending appeared tasks to recents animation", e);
                 }
@@ -1511,7 +1516,9 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
                     ProtoLog.v(ShellProtoLogGroup.WM_SHELL_RECENTS_TRANSITION,
                             "[%d] RecentsController.setInputConsumerEnabled: set focus to recents",
                             mInstanceId);
-                    ActivityTaskManager.getService().focusTopTask(displayId);
+                    AxBurstEngine.withBinderUxFlagForRemote(
+                            AxBurstEngine.BINDER_UX_ENQUEUE,
+                            () -> ActivityTaskManager.getService().focusTopTask(displayId));
                 } catch (RemoteException e) {
                     Slog.e(TAG, "Failed to set focused task", e);
                 }

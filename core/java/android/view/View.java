@@ -89,6 +89,7 @@ import android.annotation.SystemApi;
 import android.annotation.TestApi;
 import android.annotation.UiContext;
 import android.annotation.UiThread;
+import android.app.AxBurstEngine;
 import android.app.PendingIntent;
 import android.app.jank.AppJankStats;
 import android.app.jank.JankTracker;
@@ -28912,6 +28913,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * @param animation the animation to start now
      */
     public void startAnimation(Animation animation) {
+        AxBurstEngine.prepareForAnim(animation.computeDurationHint());
         animation.setStartTime(Animation.START_ON_FIRST_FRAME);
         setAnimation(animation);
         invalidateParentCaches();
@@ -28967,6 +28969,9 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      */
     @CallSuper
     protected void onAnimationStart() {
+        if (mCurrentAnimation != null) {
+            AxBurstEngine.onAnimationStart(mCurrentAnimation.computeDurationHint());
+        }
         mPrivateFlags |= PFLAG_ANIMATION_STARTED;
     }
 
@@ -28980,6 +28985,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      */
     @CallSuper
     protected void onAnimationEnd() {
+        AxBurstEngine.onAnimationEnd();
         mPrivateFlags &= ~PFLAG_ANIMATION_STARTED;
     }
 

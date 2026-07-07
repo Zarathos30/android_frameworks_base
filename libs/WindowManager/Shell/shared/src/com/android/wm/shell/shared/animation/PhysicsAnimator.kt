@@ -603,7 +603,9 @@ class PhysicsAnimator<T> private constructor (target: T) {
         // Actually start the DynamicAnimations. This is delayed until after the InternalListener is
         // constructed and added so that we don't miss the end listener firing for any animations
         // that immediately end.
-        animationStartActions.forEach { it.invoke() }
+        if (animationStartActions.isNotEmpty()) {
+            animationStartActions.forEach { it.invoke() }
+        }
 
         clearAnimator()
     }

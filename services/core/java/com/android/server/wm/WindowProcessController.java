@@ -74,6 +74,7 @@ import android.content.res.Configuration;
 import android.os.Binder;
 import android.os.Build;
 import android.os.FactoryTest;
+import android.os.Handler;
 import android.os.LocaleList;
 import android.os.Message;
 import android.os.Process;
@@ -91,6 +92,7 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.app.HeavyWeightSwitcherActivity;
 import com.android.internal.protolog.ProtoLog;
 import com.android.internal.util.function.pooled.PooledLambda;
+import com.android.server.UiThread;
 import com.android.server.Watchdog;
 import com.android.server.am.Flags;
 import com.android.server.am.psc.AsyncBatchSession;
@@ -304,11 +306,13 @@ public class WindowProcessController extends ConfigurationContainer<Configuratio
     static final int ANIMATING_REASON_REMOTE_ANIMATION = 1;
     /** It is set for wakefulness transition. */
     static final int ANIMATING_REASON_WAKEFULNESS_CHANGE = 1 << 1;
+    static final int ANIMATING_REASON_REMOTE_ANIMATION_TARGET = 1 << 2;
 
     @Retention(RetentionPolicy.SOURCE)
     @IntDef({
             ANIMATING_REASON_REMOTE_ANIMATION,
             ANIMATING_REASON_WAKEFULNESS_CHANGE,
+            ANIMATING_REASON_REMOTE_ANIMATION_TARGET,
     })
     @interface AnimatingReason {}
 
@@ -1468,6 +1472,8 @@ public class WindowProcessController extends ConfigurationContainer<Configuratio
         if (addPendingTopUid) {
             addToPendingTop();
         }
+        final boolean useUiThread = shouldRunActivityChangeOnUiThread(
+                updateServiceConnectionActivities, activityChange);
 
         // Multiple OomAdjuster affecting state changes can occur, wrap those state changes in a
         // BatchSession.
@@ -1480,6 +1486,9 @@ public class WindowProcessController extends ConfigurationContainer<Configuratio
             if (Flags.pushActivityStateToOomadjuster()) {
                 // updateProcessInfo can trigger an OomAdjuster update, let the
                 // ProcessStateController batch session handle it.
+                if (useUiThread) {
+                    batchSession.postToHandlerOnClose(UiThread.getHandler());
+                }
                 batchSession.enqueue(
                         () -> mListener.updateProcessInfo(updateServiceConnectionActivities,
                                 activityChange, updateOomAdj));
@@ -1487,9 +1496,18 @@ public class WindowProcessController extends ConfigurationContainer<Configuratio
                 final Message m = PooledLambda.obtainMessage(
                         WindowProcessListener::updateProcessInfo,
                         mListener, updateServiceConnectionActivities, activityChange, updateOomAdj);
-                mAtm.mH.sendMessage(m);
+                final Handler handler = useUiThread ? UiThread.getHandler() : mAtm.mH;
+                handler.sendMessage(m);
             }
         }
+    }
+
+    private static boolean shouldRunActivityChangeOnUiThread(
+            boolean updateServiceConnectionActivities, boolean activityChange) {
+        if (!activityChange || updateServiceConnectionActivities) {
+            return false;
+        }
+        return UiThread.getHandler().getLooper().isCurrentThread();
     }
 
     /** Refreshes oom adjustment and process state of this process. */
@@ -2293,6 +2311,9 @@ public class WindowProcessController extends ConfigurationContainer<Configuratio
             }
             if ((animatingReasons & ANIMATING_REASON_WAKEFULNESS_CHANGE) != 0) {
                 pw.print("wakefulness|");
+            }
+            if ((animatingReasons & ANIMATING_REASON_REMOTE_ANIMATION_TARGET) != 0) {
+                pw.print("remote-animation-target|");
             }
             pw.println();
         }

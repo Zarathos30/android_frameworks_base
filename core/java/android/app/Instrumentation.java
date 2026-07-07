@@ -2012,11 +2012,17 @@ public class Instrumentation {
         try {
             intent.migrateExtraStreamToClipData(who);
             intent.prepareToLeaveProcess(who);
-            int result = ActivityTaskManager.getService().startActivity(whoThread,
-                    who.getOpPackageName(), who.getAttributionTag(), intent,
-                    intent.resolveTypeIfNeeded(who.getContentResolver()), token,
-                    target != null ? target.mEmbeddedID : null, requestCode, 0, null, options);
-            notifyStartActivityResult(result, options);
+            final Bundle activityOptions = options;
+            int result = AxBurstEngine.withBinderUxFlagForRemote(
+                    AxBurstEngine.BINDER_UX_ENQUEUE,
+                    () -> {
+                        return ActivityTaskManager.getService().startActivity(whoThread,
+                                who.getOpPackageName(), who.getAttributionTag(), intent,
+                                intent.resolveTypeIfNeeded(who.getContentResolver()), token,
+                                target != null ? target.mEmbeddedID : null, requestCode, 0, null,
+                                activityOptions);
+                    });
+            notifyStartActivityResult(result, activityOptions);
             checkStartActivityResult(result, intent);
         } catch (RemoteException e) {
             throw new RuntimeException("Failure from system", e);
@@ -2105,10 +2111,15 @@ public class Instrumentation {
                 intents[i].prepareToLeaveProcess(who);
                 resolvedTypes[i] = intents[i].resolveTypeIfNeeded(who.getContentResolver());
             }
-            int result = ActivityTaskManager.getService().startActivities(whoThread,
-                    who.getOpPackageName(), who.getAttributionTag(), intents, resolvedTypes,
-                    token, options, userId);
-            notifyStartActivityResult(result, options);
+            final Bundle activityOptions = options;
+            int result = AxBurstEngine.withBinderUxFlagForRemote(
+                    AxBurstEngine.BINDER_UX_ENQUEUE,
+                    () -> {
+                        return ActivityTaskManager.getService().startActivities(whoThread,
+                                who.getOpPackageName(), who.getAttributionTag(), intents,
+                                resolvedTypes, token, activityOptions, userId);
+                    });
+            notifyStartActivityResult(result, activityOptions);
             checkStartActivityResult(result, intents[0]);
             return result;
         } catch (RemoteException e) {
@@ -2185,11 +2196,16 @@ public class Instrumentation {
         try {
             intent.migrateExtraStreamToClipData(who);
             intent.prepareToLeaveProcess(who);
-            int result = ActivityTaskManager.getService().startActivity(whoThread,
-                    who.getOpPackageName(), who.getAttributionTag(), intent,
-                    intent.resolveTypeIfNeeded(who.getContentResolver()), token, target,
-                    requestCode, 0, null, options);
-            notifyStartActivityResult(result, options);
+            final Bundle activityOptions = options;
+            int result = AxBurstEngine.withBinderUxFlagForRemote(
+                    AxBurstEngine.BINDER_UX_ENQUEUE,
+                    () -> {
+                        return ActivityTaskManager.getService().startActivity(whoThread,
+                                who.getOpPackageName(), who.getAttributionTag(), intent,
+                                intent.resolveTypeIfNeeded(who.getContentResolver()), token,
+                                target, requestCode, 0, null, activityOptions);
+                    });
+            notifyStartActivityResult(result, activityOptions);
             checkStartActivityResult(result, intent);
         } catch (RemoteException e) {
             throw new RuntimeException("Failure from system", e);
@@ -2265,11 +2281,17 @@ public class Instrumentation {
         try {
             intent.migrateExtraStreamToClipData(who);
             intent.prepareToLeaveProcess(who);
-            int result = ActivityTaskManager.getService().startActivityAsUser(whoThread,
-                    who.getOpPackageName(), who.getAttributionTag(), intent,
-                    intent.resolveTypeIfNeeded(who.getContentResolver()), token, resultWho,
-                    requestCode, 0, null, options, user.getIdentifier());
-            notifyStartActivityResult(result, options);
+            final Bundle activityOptions = options;
+            int result = AxBurstEngine.withBinderUxFlagForRemote(
+                    AxBurstEngine.BINDER_UX_ENQUEUE,
+                    () -> {
+                        return ActivityTaskManager.getService().startActivityAsUser(whoThread,
+                                who.getOpPackageName(), who.getAttributionTag(), intent,
+                                intent.resolveTypeIfNeeded(who.getContentResolver()), token,
+                                resultWho, requestCode, 0, null, activityOptions,
+                                user.getIdentifier());
+                    });
+            notifyStartActivityResult(result, activityOptions);
             checkStartActivityResult(result, intent);
         } catch (RemoteException e) {
             throw new RuntimeException("Failure from system", e);
@@ -2325,13 +2347,17 @@ public class Instrumentation {
         try {
             intent.migrateExtraStreamToClipData(who);
             intent.prepareToLeaveProcess(who);
-            int result = ActivityTaskManager.getService()
-                    .startActivityAsCaller(whoThread, who.getOpPackageName(), intent,
-                            intent.resolveTypeIfNeeded(who.getContentResolver()),
-                            token, target != null ? target.mEmbeddedID : null,
-                            requestCode, 0, null, options,
-                            ignoreTargetSecurity, userId);
-            notifyStartActivityResult(result, options);
+            final Bundle activityOptions = options;
+            int result = AxBurstEngine.withBinderUxFlagForRemote(
+                    AxBurstEngine.BINDER_UX_ENQUEUE,
+                    () -> {
+                        return ActivityTaskManager.getService()
+                                .startActivityAsCaller(whoThread, who.getOpPackageName(), intent,
+                                    intent.resolveTypeIfNeeded(who.getContentResolver()), token,
+                                    target != null ? target.mEmbeddedID : null, requestCode, 0,
+                                    null, activityOptions, ignoreTargetSecurity, userId);
+                    });
+            notifyStartActivityResult(result, activityOptions);
             checkStartActivityResult(result, intent);
         } catch (RemoteException e) {
             throw new RuntimeException("Failure from system", e);
@@ -2384,10 +2410,16 @@ public class Instrumentation {
         try {
             intent.migrateExtraStreamToClipData(who);
             intent.prepareToLeaveProcess(who);
-            int result = appTask.startActivity(whoThread.asBinder(), who.getOpPackageName(),
-                    who.getAttributionTag(), intent,
-                    intent.resolveTypeIfNeeded(who.getContentResolver()), options);
-            notifyStartActivityResult(result, options);
+            final Bundle activityOptions = options;
+            int result = AxBurstEngine.withBinderUxFlagForRemote(
+                    AxBurstEngine.BINDER_UX_ENQUEUE,
+                    () -> {
+                        return appTask.startActivity(whoThread.asBinder(), who.getOpPackageName(),
+                                who.getAttributionTag(), intent,
+                                intent.resolveTypeIfNeeded(who.getContentResolver()),
+                                activityOptions);
+                    });
+            notifyStartActivityResult(result, activityOptions);
             checkStartActivityResult(result, intent);
         } catch (RemoteException e) {
             throw new RuntimeException("Failure from system", e);

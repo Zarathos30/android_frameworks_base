@@ -91,6 +91,7 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.ActivityManager;
 import android.app.ActivityOptions;
+import android.app.AxBurstEngine;
 import android.app.IApplicationThread;
 import android.content.pm.ActivityInfo;
 import android.graphics.Point;
@@ -2095,8 +2096,9 @@ class Transition implements BLASTSyncEngine.TransactionReadyListener {
                         "Calling onTransitionReady: %s", info);
                 mLogger.mSendTimeNs = SystemClock.elapsedRealtimeNanos();
                 mLogger.mInfo = info;
-                mController.getTransitionPlayer().onTransitionReady(
-                        mToken, info, transaction, mFinishTransaction);
+                AxBurstEngine.withBinderUxFlagForRemote(AxBurstEngine.BINDER_UX_ENQUEUE,
+                        () -> mController.getTransitionPlayer().onTransitionReady(
+                                mToken, info, transaction, mFinishTransaction));
                 if (Trace.isTagEnabled(TRACE_TAG_WINDOW_MANAGER)) {
                     asyncTraceBegin(TRACE_NAME_PLAY_TRANSITION, System.identityHashCode(this));
                 }

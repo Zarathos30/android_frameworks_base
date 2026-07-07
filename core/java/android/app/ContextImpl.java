@@ -1206,11 +1206,15 @@ class ContextImpl extends Context {
     public void startActivityAsUser(Intent intent, Bundle options, UserHandle user) {
         try {
             intent.collectExtraIntentKeys();
-            ActivityTaskManager.getService().startActivityAsUser(
-                    mMainThread.getApplicationThread(), getOpPackageName(), getAttributionTag(),
-                    intent, intent.resolveTypeIfNeeded(getContentResolver()),
-                    null, null, 0, Intent.FLAG_ACTIVITY_NEW_TASK, null,
-                    applyLaunchDisplayIfNeeded(options), user.getIdentifier());
+            AxBurstEngine.withBinderUxFlagForRemote(AxBurstEngine.BINDER_UX_ENQUEUE,
+                    () -> {
+                        ActivityTaskManager.getService().startActivityAsUser(
+                                mMainThread.getApplicationThread(), getOpPackageName(),
+                                getAttributionTag(), intent,
+                                intent.resolveTypeIfNeeded(getContentResolver()), null, null, 0,
+                                Intent.FLAG_ACTIVITY_NEW_TASK, null,
+                                applyLaunchDisplayIfNeeded(options), user.getIdentifier());
+                    });
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }

@@ -19,6 +19,7 @@ package android.graphics.animation;
 import android.animation.Animator;
 import android.animation.TimeInterpolator;
 import android.animation.ValueAnimator;
+import android.app.AxBurstEngine;
 import android.graphics.CanvasProperty;
 import android.graphics.Paint;
 import android.graphics.RecordingCanvas;
@@ -205,6 +206,7 @@ public class RenderNodeAnimator extends Animator {
 
     private void moveToRunningState() {
         mState = STATE_RUNNING;
+        AxBurstEngine.prepareForAnim(getTotalDuration());
         if (mNativePtr != null) {
             nStart(mNativePtr.get());
         }
@@ -212,6 +214,7 @@ public class RenderNodeAnimator extends Animator {
     }
 
     private void notifyStartListeners() {
+        AxBurstEngine.onAnimationStart(getTotalDuration());
         final ArrayList<AnimatorListener> listeners = cloneListeners();
         final int numListeners = listeners == null ? 0 : listeners.size();
         for (int i = 0; i < numListeners; i++) {
@@ -364,6 +367,7 @@ public class RenderNodeAnimator extends Animator {
         }
         mState = STATE_FINISHED;
 
+        AxBurstEngine.onAnimationEnd();
         final ArrayList<AnimatorListener> listeners = cloneListeners();
         final int numListeners = listeners == null ? 0 : listeners.size();
         for (int i = 0; i < numListeners; i++) {

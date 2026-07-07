@@ -65,10 +65,12 @@ import com.android.internal.app.procstats.ProcessState;
 import com.android.internal.app.procstats.ProcessStats;
 import com.android.internal.os.Zygote;
 import com.android.server.FgThread;
+import com.android.server.LocalServices;
 import com.android.server.am.OomAdjusterImpl.ProcessRecordNode;
 import com.android.server.am.ProcessCachedOptimizerRecord.ShouldNotFreezeReason;
 import com.android.server.am.psc.PlatformCompatCache.CachedCompatChangeId;
 import com.android.server.am.psc.ProcessRecordInternal;
+import com.android.server.am.psc.ProcessRecordInternal.RemoteAnimationInfo;
 import com.android.server.wm.WindowProcessController;
 import com.android.server.wm.WindowProcessListener;
 
@@ -1717,6 +1719,7 @@ class ProcessRecord extends ProcessRecordInternal implements WindowProcessListen
             Slog.wtf(TAG, "system can't run remote animation");
             return;
         }
+        final RemoteAnimationInfo animationInfo;
         synchronized (mService) {
             if (mService.mProcessStateController.setRunningRemoteAnimation(this,
                     runningRemoteAnimation)) {
@@ -1726,7 +1729,15 @@ class ProcessRecord extends ProcessRecordInternal implements WindowProcessListen
                 } else {
                     mService.mProcessStateController.runUpdate(this, OOM_ADJ_REASON_UI_VISIBILITY);
                 }
+                animationInfo = getRemoteAnimationInfo();
+            } else {
+                return;
             }
+        }
+        final AxBurstEngineImpl engine = LocalServices.getService(AxBurstEngineImpl.class);
+        if (engine != null) {
+            engine.setRunningRemoteAnimation(animationInfo.pid, animationInfo.processGroup,
+                    runningRemoteAnimation);
         }
     }
 

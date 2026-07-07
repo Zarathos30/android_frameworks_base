@@ -76,6 +76,7 @@ import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.ServiceSpecificException;
 import android.os.SessionCreationConfig;
+import android.os.SystemClock;
 import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.system.Os;
@@ -97,6 +98,8 @@ import com.android.server.FgThread;
 import com.android.server.LocalServices;
 import com.android.server.ServiceThread;
 import com.android.server.SystemService;
+import com.android.server.am.AxBurstEngineImpl;
+import com.android.server.axperf.AxFrameRescueInternal;
 import com.android.server.utils.Slogf;
 
 import java.io.BufferedReader;
@@ -138,6 +141,7 @@ public final class HintManagerService extends SystemService {
     @VisibleForTesting static final int MAX_GRAPHICS_PIPELINE_THREADS_COUNT = 5;
     private static final int DEFAULT_MAX_CPU_HEADROOM_THREADS_COUNT = 5;
     private static final int DEFAULT_CHECK_HEADROOM_PROC_STAT_MIN_MILLIS = 50;
+    private static final long ADPF_PERF_NOTIFY_INTERVAL_MS = 96L;
 
     // Multi-level map storing all active AppHintSessions.
     // First level is keyed by the UID of the client process creating the session.
@@ -1398,6 +1402,7 @@ public final class HintManagerService extends SystemService {
                     }
                 }
 
+                final boolean isHwuiSession = tag == SessionTag.HWUI;
                 tag = updateSessionTag(tag, callingUid);
 
                 config.id = -1;
@@ -1441,7 +1446,7 @@ public final class HintManagerService extends SystemService {
                     if (config.id != -1) {
                         configId = new Integer((int) config.id);
                     }
-                    hs = new AppHintSession(callingUid, callingTgid, tag, tids,
+                    hs = new AppHintSession(callingUid, callingTgid, tag, isHwuiSession, tids,
                             token, halSessionPtr, durationNanos, configId);
                     ArrayMap<IBinder, ArraySet<AppHintSession>> tokenMap =
                             mActiveSessions.get(callingUid);
@@ -2112,6 +2117,7 @@ public final class HintManagerService extends SystemService {
         protected final int mUid;
         protected final int mPid;
         protected final int mTag;
+        protected final boolean mIsHwuiSession;
         protected int[] mThreadIds;
         protected final IBinder mToken;
         protected long mHalSessionPtr;
@@ -2125,13 +2131,15 @@ public final class HintManagerService extends SystemService {
         protected boolean mShouldForcePause;
         protected Integer mSessionId;
         protected boolean mTrackedBySF;
+        protected long mLastPerfNotifyUptimeMs;
 
         protected AppHintSession(
-                int uid, int pid, int sessionTag, int[] threadIds, IBinder token,
-                long halSessionPtr, long durationNanos, Integer sessionId) {
+                int uid, int pid, int sessionTag, boolean hwuiSession, int[] threadIds,
+                IBinder token, long halSessionPtr, long durationNanos, Integer sessionId) {
             mUid = uid;
             mPid = pid;
             mTag = sessionTag;
+            mIsHwuiSession = hwuiSession;
             mToken = token;
             mThreadIds = threadIds;
             mHalSessionPtr = halSessionPtr;
@@ -2144,6 +2152,7 @@ public final class HintManagerService extends SystemService {
             mShouldForcePause = false;
             mSessionId = sessionId;
             mTrackedBySF = false;
+            mLastPerfNotifyUptimeMs = 0L;
             final boolean allowed = mUidObserver.isUidForeground(mUid);
             updateHintAllowedByProcState(allowed);
             try {
@@ -2201,6 +2210,7 @@ public final class HintManagerService extends SystemService {
 
         @Override
         public void reportActualWorkDuration(long[] actualDurationNanos, long[] timeStampNanos) {
+            final long actualDurationNs;
             synchronized (this) {
                 if (!isHintAllowed()) {
                     return;
@@ -2216,9 +2226,11 @@ public final class HintManagerService extends SystemService {
                                         i, actualDurationNanos[i]));
                     }
                 }
+                actualDurationNs = maxActualDurationNanos(actualDurationNanos);
                 mNativeWrapper.halReportActualWorkDuration(mHalSessionPtr, actualDurationNanos,
                         timeStampNanos);
             }
+            notifyAdpfWorkDuration(actualDurationNs);
         }
 
         /** TODO: consider monitor session threads and close session if any thread is dead. */
@@ -2300,6 +2312,7 @@ public final class HintManagerService extends SystemService {
                         + " greater than zero.");
                 mNativeWrapper.halSendHint(mHalSessionPtr, hint);
             }
+            notifyAdpfHint(hint);
         }
 
         @Override
@@ -2496,6 +2509,7 @@ public final class HintManagerService extends SystemService {
 
         @Override
         public void reportActualWorkDuration2(WorkDuration[] workDurations) {
+            final long actualDurationNs;
             synchronized (this) {
                 if (!isHintAllowed()) {
                     return;
@@ -2505,8 +2519,10 @@ public final class HintManagerService extends SystemService {
                 for (int i = 0; i < workDurations.length; i++) {
                     validateWorkDuration(workDurations[i]);
                 }
+                actualDurationNs = maxActualDurationNanos(workDurations);
                 mNativeWrapper.halReportActualWorkDuration(mHalSessionPtr, workDurations);
             }
+            notifyAdpfWorkDuration(actualDurationNs);
         }
 
         public boolean isPowerEfficient() {
@@ -2552,6 +2568,89 @@ public final class HintManagerService extends SystemService {
             }
         }
 
+        private void notifyAdpfWorkDuration(long actualDurationNs) {
+            if (actualDurationNs <= 0) {
+                return;
+            }
+            final long targetDurationNs = getTargetDurationNs();
+            if (mIsHwuiSession) {
+                final AxFrameRescueInternal frameRescue =
+                        LocalServices.getService(AxFrameRescueInternal.class);
+                if (frameRescue != null) {
+                    frameRescue.onAdpfWorkDuration(mPid, mUid, SessionTag.HWUI, actualDurationNs,
+                            targetDurationNs);
+                }
+            }
+            if (targetDurationNs <= 0 || isPowerEfficient()
+                    || actualDurationNs < targetDurationNs - targetDurationNs / 4
+                    || !markPerfNotified()) {
+                return;
+            }
+            final AxBurstEngineImpl engine = LocalServices.getService(AxBurstEngineImpl.class);
+            if (engine != null) {
+                engine.onAdpfWork(mPid, mUid, mTag, isGraphicsPipeline(),
+                        actualDurationNs, targetDurationNs);
+            }
+        }
+
+        private void notifyAdpfHint(int hint) {
+            if (mIsHwuiSession) {
+                final AxFrameRescueInternal frameRescue =
+                        LocalServices.getService(AxFrameRescueInternal.class);
+                if (frameRescue != null) {
+                    frameRescue.onAdpfHint(mPid, mUid, SessionTag.HWUI, hint,
+                            getTargetDurationNs());
+                }
+            }
+            if (!isPerfHint(hint) || isPowerEfficient() || !markPerfNotified()) {
+                return;
+            }
+            final AxBurstEngineImpl engine = LocalServices.getService(AxBurstEngineImpl.class);
+            if (engine != null) {
+                engine.onAdpfHint(mPid, mUid, mTag, isGraphicsPipeline(), hint);
+            }
+        }
+
+        private boolean markPerfNotified() {
+            final long now = SystemClock.uptimeMillis();
+            synchronized (this) {
+                if (now < mLastPerfNotifyUptimeMs + ADPF_PERF_NOTIFY_INTERVAL_MS) {
+                    return false;
+                }
+                mLastPerfNotifyUptimeMs = now;
+                return true;
+            }
+        }
+
+        private static boolean isPerfHint(int hint) {
+            switch (hint) {
+                case PerformanceHintManager.Session.CPU_LOAD_UP:
+                case PerformanceHintManager.Session.CPU_LOAD_RESET:
+                case PerformanceHintManager.Session.CPU_LOAD_RESUME:
+                case PerformanceHintManager.Session.GPU_LOAD_UP:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static long maxActualDurationNanos(long[] actualDurationNanos) {
+            long maxDurationNanos = 0;
+            for (long durationNanos : actualDurationNanos) {
+                maxDurationNanos = Math.max(maxDurationNanos, durationNanos);
+            }
+            return maxDurationNanos;
+        }
+
+        private static long maxActualDurationNanos(WorkDuration[] workDurations) {
+            long maxDurationNanos = 0;
+            for (WorkDuration workDuration : workDurations) {
+                maxDurationNanos = Math.max(maxDurationNanos,
+                        workDuration.durationNanos);
+            }
+            return maxDurationNanos;
+        }
+
         void validateWorkDuration(WorkDuration workDuration) {
             if (DEBUG) {
                 Slogf.d(TAG, "WorkDuration("
@@ -2564,36 +2663,39 @@ public final class HintManagerService extends SystemService {
             // Allow work period start timestamp to be zero in system server side because
             // legacy API call will use zero value. It can not be estimated with the timestamp
             // the sample is received because the samples could stack up.
-            if (workDuration.durationNanos <= 0) {
+            final long actualDurationNanos = workDuration.durationNanos;
+            final long workPeriodStartTimestampNanos =
+                    workDuration.workPeriodStartTimestampNanos;
+            final long cpuDurationNanos = workDuration.cpuDurationNanos;
+            final long gpuDurationNanos = workDuration.gpuDurationNanos;
+            if (actualDurationNanos <= 0) {
                 throw new IllegalArgumentException(
                     TextUtils.formatSimple("Actual total duration (%d) should be greater than 0",
-                            workDuration.durationNanos));
+                            actualDurationNanos));
             }
-            if (workDuration.workPeriodStartTimestampNanos < 0) {
+            if (workPeriodStartTimestampNanos < 0) {
                 throw new IllegalArgumentException(
                     TextUtils.formatSimple(
                             "Work period start timestamp (%d) should be greater than 0",
-                            workDuration.workPeriodStartTimestampNanos));
+                            workPeriodStartTimestampNanos));
             }
-            if (workDuration.cpuDurationNanos < 0) {
+            if (cpuDurationNanos < 0) {
                 throw new IllegalArgumentException(
                     TextUtils.formatSimple(
                         "Actual CPU duration (%d) should be greater than or equal to 0",
-                            workDuration.cpuDurationNanos));
+                            cpuDurationNanos));
             }
-            if (workDuration.gpuDurationNanos < 0) {
+            if (gpuDurationNanos < 0) {
                 throw new IllegalArgumentException(
                     TextUtils.formatSimple(
                         "Actual GPU duration (%d) should greater than or equal to 0",
-                            workDuration.gpuDurationNanos));
+                            gpuDurationNanos));
             }
-            if (workDuration.cpuDurationNanos
-                    + workDuration.gpuDurationNanos <= 0) {
+            if (cpuDurationNanos + gpuDurationNanos <= 0) {
                 throw new IllegalArgumentException(
                     TextUtils.formatSimple(
                         "The actual CPU duration (%d) and the actual GPU duration (%d)"
-                        + " should not both be 0", workDuration.cpuDurationNanos,
-                        workDuration.gpuDurationNanos));
+                        + " should not both be 0", cpuDurationNanos, gpuDurationNanos));
             }
         }
 

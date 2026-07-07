@@ -25,6 +25,7 @@ import android.annotation.Nullable;
 import android.app.ActivityManager;
 import android.app.ActivityTaskManager;
 import android.app.ActivityThread;
+import android.app.AxBurstEngine;
 import android.app.TaskInfo;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
@@ -301,7 +302,10 @@ class SplashscreenWindowCreator extends AbsSplashWindowCreator {
         ProtoLog.v(ShellProtoLogGroup.WM_SHELL_STARTING_WINDOW,
                 "Copying splash screen window view for task: %d with parcelable %b",
                 taskId, parcelable != null);
-        ActivityTaskManager.getInstance().onSplashScreenViewCopyFinished(taskId, parcelable);
+        final SplashScreenView.SplashScreenViewParcelable copiedParcelable = parcelable;
+        AxBurstEngine.withBinderUxFlag(AxBurstEngine.BINDER_UX_ENQUEUE,
+                () -> ActivityTaskManager.getInstance().onSplashScreenViewCopyFinished(
+                        taskId, copiedParcelable));
     }
 
     /**
@@ -339,8 +343,9 @@ class SplashscreenWindowCreator extends AbsSplashWindowCreator {
         final Context context = view.getContext();
         try {
             Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "addRootView");
-            mWindowManagerGlobal.addView(view, params, display,
-                    null /* parentWindow */, context.getUserId());
+            AxBurstEngine.withBinderUxFlag(AxBurstEngine.BINDER_UX_ENQUEUE,
+                    () -> mWindowManagerGlobal.addView(view, params, display,
+                            null /* parentWindow */, context.getUserId()));
         } catch (WindowManager.BadTokenException e) {
             // ignore
             Slog.w(TAG, appToken + " already running, starting window not displayed. "
@@ -381,7 +386,8 @@ class SplashscreenWindowCreator extends AbsSplashWindowCreator {
         if (hideView) {
             decorView.setVisibility(View.GONE);
         }
-        mWindowManagerGlobal.removeView(decorView, false /* immediate */);
+        AxBurstEngine.withBinderUxFlag(AxBurstEngine.BINDER_UX_ENQUEUE,
+                () -> mWindowManagerGlobal.removeView(decorView, false /* immediate */));
     }
 
     private static class SplashScreenViewSupplier implements Supplier<SplashScreenView> {

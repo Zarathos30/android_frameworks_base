@@ -30,6 +30,7 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.ActivityManager;
 import android.app.ActivityManager.RunningTaskInfo;
+import android.app.AxBurstEngine;
 import android.app.WindowConfiguration;
 import android.content.Intent;
 import android.content.pm.ParceledListSlice;
@@ -78,6 +79,11 @@ import java.util.WeakHashMap;
 class TaskOrganizerController extends ITaskOrganizerController.Stub {
     private static final String TAG = "TaskOrganizerController";
 
+    private static void runWithBinderUx(AxBurstEngine.RemoteExceptionRunnable call)
+            throws RemoteException {
+        AxBurstEngine.withBinderUxFlagForRemote(AxBurstEngine.BINDER_UX_ENQUEUE, call);
+    }
+
     @VisibleForTesting
     class DeathRecipient implements IBinder.DeathRecipient {
         ITaskOrganizer mTaskOrganizer;
@@ -124,7 +130,7 @@ class TaskOrganizerController extends ITaskOrganizerController.Stub {
             final SurfaceControl leash = prepareLeash(task,
                     "TaskOrganizerController.onTaskAppeared");
             try {
-                mTaskOrganizer.onTaskAppeared(taskInfo, leash);
+                runWithBinderUx(() -> mTaskOrganizer.onTaskAppeared(taskInfo, leash));
             } catch (RemoteException e) {
                 Slog.e(TAG, "Exception sending onTaskAppeared callback", e);
 
@@ -141,7 +147,7 @@ class TaskOrganizerController extends ITaskOrganizerController.Stub {
             ProtoLog.v(WM_DEBUG_WINDOW_ORGANIZER, "Task vanished taskId=%d", task.mTaskId);
             final RunningTaskInfo taskInfo = task.getTaskInfo();
             try {
-                mTaskOrganizer.onTaskVanished(taskInfo);
+                runWithBinderUx(() -> mTaskOrganizer.onTaskVanished(taskInfo));
             } catch (RemoteException e) {
                 Slog.e(TAG, "Exception sending onTaskVanished callback", e);
             }
@@ -161,7 +167,7 @@ class TaskOrganizerController extends ITaskOrganizerController.Stub {
                 // Purposely notify of task info change immediately instead of deferring (like
                 // appear and vanish) to allow info changes (such as new PIP params) to flow
                 // without waiting.
-                mTaskOrganizer.onTaskInfoChanged(taskInfo);
+                runWithBinderUx(() -> mTaskOrganizer.onTaskInfoChanged(taskInfo));
             } catch (RemoteException e) {
                 Slog.e(TAG, "Exception sending onTaskInfoChanged callback", e);
             }
@@ -179,7 +185,7 @@ class TaskOrganizerController extends ITaskOrganizerController.Stub {
                 return;
             }
             try {
-                mTaskOrganizer.onBackPressedOnTaskRoot(task.getTaskInfo());
+                runWithBinderUx(() -> mTaskOrganizer.onBackPressedOnTaskRoot(task.getTaskInfo()));
             } catch (Exception e) {
                 Slog.e(TAG, "Exception sending onBackPressedOnTaskRoot callback", e);
             }
@@ -673,7 +679,7 @@ class TaskOrganizerController extends ITaskOrganizerController.Stub {
         }
         // make this happen prior than prepare surface
         try {
-            lastOrganizer.addStartingWindow(info);
+            runWithBinderUx(() -> lastOrganizer.addStartingWindow(info));
         } catch (RemoteException e) {
             Slog.e(TAG, "Exception sending onTaskStart callback", e);
             return false;
@@ -735,7 +741,7 @@ class TaskOrganizerController extends ITaskOrganizerController.Stub {
         final StartingWindowRemovalInfo removalInfo =
                 getStartingWindowRemovalInfo(task, prepareAnimation, hasImeSurface);
         try {
-            lastOrganizer.removeStartingWindow(removalInfo);
+            runWithBinderUx(() -> lastOrganizer.removeStartingWindow(removalInfo));
         } catch (RemoteException e) {
             Slog.e(TAG, "Exception sending onStartTaskFinished callback", e);
         }
@@ -774,7 +780,7 @@ class TaskOrganizerController extends ITaskOrganizerController.Stub {
             Slog.w(TAG, "The windowless starting window is created without transition?");
         }
         try {
-            lastOrganizer.addStartingWindow(info);
+            runWithBinderUx(() -> lastOrganizer.addStartingWindow(info));
         } catch (RemoteException e) {
             Slog.e(TAG, "Exception sending addWindowlessStartingSurface ", e);
             return INVALID_TASK_ID;
@@ -793,7 +799,7 @@ class TaskOrganizerController extends ITaskOrganizerController.Stub {
         removalInfo.removeImmediately = immediately;
         removalInfo.deferRemoveMode = DEFER_MODE_NONE;
         try {
-            lastOrganizer.removeStartingWindow(removalInfo);
+            runWithBinderUx(() -> lastOrganizer.removeStartingWindow(removalInfo));
         } catch (RemoteException e) {
             Slog.e(TAG, "Exception sending removeWindowlessStartingSurface ", e);
         }
@@ -810,7 +816,7 @@ class TaskOrganizerController extends ITaskOrganizerController.Stub {
             return false;
         }
         try {
-            lastOrganizer.copySplashScreenView(task.mTaskId);
+            runWithBinderUx(() -> lastOrganizer.copySplashScreenView(task.mTaskId));
         } catch (RemoteException e) {
             Slog.e(TAG, "Exception sending copyStartingWindowView callback", e);
             return false;
@@ -838,7 +844,7 @@ class TaskOrganizerController extends ITaskOrganizerController.Stub {
             return;
         }
         try {
-            lastOrganizer.onAppSplashScreenViewRemoved(task.mTaskId);
+            runWithBinderUx(() -> lastOrganizer.onAppSplashScreenViewRemoved(task.mTaskId));
         } catch (RemoteException e) {
             Slog.e(TAG, "Exception sending onAppSplashScreenViewRemoved callback", e);
         }
@@ -974,7 +980,8 @@ class TaskOrganizerController extends ITaskOrganizerController.Stub {
         final TaskOrganizerState state = mTaskOrganizerStates.get(task.mTaskOrganizer.asBinder());
         if (state != null) {
             try {
-                state.mOrganizer.mTaskOrganizer.onImeDrawnOnTask(task.mTaskId);
+                runWithBinderUx(
+                        () -> state.mOrganizer.mTaskOrganizer.onImeDrawnOnTask(task.mTaskId));
             } catch (RemoteException e) {
                 Slog.e(TAG, "Exception sending onImeDrawnOnTask callback", e);
             }

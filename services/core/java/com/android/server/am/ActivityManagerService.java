@@ -393,6 +393,7 @@ import android.util.FeatureFlagUtils;
 import android.util.IndentingPrintWriter;
 import android.util.IntArray;
 import android.util.Log;
+import android.util.LongSparseArray;
 import android.util.MathUtils;
 import android.util.Pair;
 import android.util.Slog;
@@ -464,6 +465,7 @@ import com.android.server.UiThread;
 import com.android.server.Watchdog;
 import com.android.server.am.LowMemDetector.MemFactor;
 import com.android.server.am.psc.ProcessRecordInternal;
+import com.android.server.axperf.AxFrameRescueInternal;
 import com.android.server.appop.AppOpsService;
 import com.android.server.compat.PlatformCompat;
 import com.android.server.contentcapture.ContentCaptureManagerInternal;
@@ -1072,6 +1074,13 @@ public class ActivityManagerService extends IActivityManager.Stub
     @GuardedBy("this")
     final ArrayList<ProcessRecord> mPersistentStartingProcesses = new ArrayList<ProcessRecord>();
 
+    private static final long AX_LAUNCH_COLD_TIMEOUT_MS = 3000L;
+    private static final long AX_LAUNCH_WARM_TIMEOUT_MS = 2200L;
+    private static final long AX_LAUNCH_HOT_TIMEOUT_MS = 1500L;
+
+    @GuardedBy("this")
+    private final LongSparseArray<AxLaunchProcess> mAxLaunchProcesses = new LongSparseArray<>();
+
     private final ActivityMetricsLaunchObserver mActivityLaunchObserver =
             new ActivityMetricsLaunchObserver() {
 
@@ -1086,11 +1095,14 @@ public class ActivityManagerService extends IActivityManager.Stub
         @Override
         public void onIntentFailed(long id) {
             mProcessList.getAppStartInfoTracker().onActivityIntentFailed(id);
+            notifyAxBurstEngineAppLaunchFinished(removeAxLaunchPid(id));
         }
 
         @Override
         public void onActivityLaunched(long id, ComponentName name, int temperature,
                 String processName, int uid) {
+            int axbeLaunchPid = -1;
+            final long axbeLaunchTimeoutMs = axLaunchTimeoutMs(temperature);
             mAppProfiler.onActivityLaunched();
             synchronized (ActivityManagerService.this) {
                 String processRecordName = Flags.appStartInfoProcessNameFix()
@@ -1098,12 +1110,18 @@ public class ActivityManagerService extends IActivityManager.Stub
                 ProcessRecord record = getProcessRecordLocked(processRecordName, uid);
                 mProcessList.getAppStartInfoTracker().onActivityLaunched(id, name, temperature,
                         record);
+                axbeLaunchPid = record != null ? record.getPid() : -1;
+                mAxLaunchProcesses.put(id,
+                        new AxLaunchProcess(processRecordName, uid, axbeLaunchPid,
+                                axbeLaunchTimeoutMs));
             }
+            notifyAxBurstEngineAppLaunchStarted(axbeLaunchPid, axbeLaunchTimeoutMs);
         }
 
         @Override
         public void onActivityLaunchCancelled(long id) {
             mProcessList.getAppStartInfoTracker().onActivityLaunchCancelled(id);
+            notifyAxBurstEngineAppLaunchFinished(removeAxLaunchPid(id));
         }
 
         @Override
@@ -1111,6 +1129,7 @@ public class ActivityManagerService extends IActivityManager.Stub
                 int launchMode) {
             mProcessList.getAppStartInfoTracker().onActivityLaunchFinished(id, name,
                     timestampNanos, launchMode);
+            notifyAxBurstEngineAppLaunchFinished(removeAxLaunchPid(id));
         }
 
         @Override
@@ -19968,5 +19987,171 @@ public class ActivityManagerService extends IActivityManager.Stub
     public AxKernelMetrics getAxKernelMetrics(
             long previousCpuActiveTimeTicks, long previousCpuTimeTicks) {
         return mAxKernelManager.getMetrics(previousCpuActiveTimeTicks, previousCpuTimeTicks);
+    }
+
+    @Override
+    public void onFrameRescue(int source, int level, long actualDurationNs,
+            long targetDurationNs, int durationMs) {
+        final int pid = Binder.getCallingPid();
+        final ProcessRecord app = getCallingUiPerfSignalApp(pid);
+        if (app == null) {
+            return;
+        }
+        final AxFrameRescueInternal service =
+                LocalServices.getService(AxFrameRescueInternal.class);
+        if (service != null) {
+            service.onFrameRescue(pid, app.uid, source, level, actualDurationNs,
+                    targetDurationNs, durationMs);
+        }
+    }
+
+    @Override
+    public void onUiAnimationPrepared(long durationMs) {
+        final int pid = Binder.getCallingPid();
+        final ProcessRecord app = getCallingUiPerfSignalApp(pid);
+        if (app == null) {
+            return;
+        }
+        final AxBurstEngineImpl engine = LocalServices.getService(AxBurstEngineImpl.class);
+        if (engine != null) {
+            engine.onUiAnimationPrepared(app, pid, durationMs);
+        }
+    }
+
+    @Override
+    public void onUiAnimationStarted(long durationMs) {
+        final int pid = Binder.getCallingPid();
+        final ProcessRecord app = getCallingUiPerfSignalApp(pid);
+        if (app == null) {
+            return;
+        }
+        final AxBurstEngineImpl engine = LocalServices.getService(AxBurstEngineImpl.class);
+        if (engine != null) {
+            engine.onUiAnimationStarted(app, pid, durationMs);
+        }
+    }
+
+    @Override
+    public void onUiAnimationFinished() {
+        final int pid = Binder.getCallingPid();
+        if (getCallingUiPerfSignalApp(pid) == null) {
+            return;
+        }
+        final AxBurstEngineImpl engine = LocalServices.getService(AxBurstEngineImpl.class);
+        if (engine != null) {
+            engine.onUiAnimationFinished(pid);
+        }
+    }
+
+    @Nullable
+    private ProcessRecord getCallingUiPerfSignalApp(int pid) {
+        if (pid <= 0 || pid == Process.myPid()) {
+            return null;
+        }
+        return getUiPerfSignalApp(pid, Binder.getCallingUid());
+    }
+
+    @Nullable
+    private ProcessRecord getUiPerfSignalApp(int pid, int uid) {
+        synchronized (mPidsSelfLocked) {
+            final ProcessRecord app = mPidsSelfLocked.get(pid);
+            if (app == null || app.uid != uid) {
+                return null;
+            }
+            if (app.isSystemUi() || app.isLauncher3()
+                    || app.getCurProcState() <= PROCESS_STATE_BOUND_TOP) {
+                return app;
+            }
+            return null;
+        }
+    }
+
+    private int removeAxLaunchPid(long launchId) {
+        synchronized (ActivityManagerService.this) {
+            final int index = mAxLaunchProcesses.indexOfKey(launchId);
+            if (index < 0) {
+                return -1;
+            }
+            final AxLaunchProcess launch = mAxLaunchProcesses.valueAt(index);
+            mAxLaunchProcesses.removeAt(index);
+            return launch.pid;
+        }
+    }
+
+    void notifyAxBurstEngineProcessStarted(ProcessRecord app) {
+        if (app == null || app.getPid() <= 0) {
+            return;
+        }
+        final int pid;
+        final long timeoutMs;
+        synchronized (ActivityManagerService.this) {
+            final AxLaunchProcess launch = updateAxLaunchPidLocked(app);
+            pid = launch != null ? launch.pid : -1;
+            timeoutMs = launch != null ? launch.timeoutMs : AX_LAUNCH_COLD_TIMEOUT_MS;
+        }
+        notifyAxBurstEngineAppLaunchStarted(pid, timeoutMs);
+    }
+
+    @GuardedBy("this")
+    private AxLaunchProcess updateAxLaunchPidLocked(ProcessRecord app) {
+        AxLaunchProcess matched = null;
+        for (int i = 0; i < mAxLaunchProcesses.size(); i++) {
+            final AxLaunchProcess launch = mAxLaunchProcesses.valueAt(i);
+            if (launch.pid <= 0 && launch.matches(app)) {
+                launch.pid = app.getPid();
+                matched = launch;
+            }
+        }
+        return matched;
+    }
+
+    private void notifyAxBurstEngineAppLaunchStarted(int pid, long timeoutMs) {
+        if (pid <= 0) {
+            return;
+        }
+        final AxBurstEngineImpl engine = LocalServices.getService(AxBurstEngineImpl.class);
+        if (engine != null) {
+            engine.onAppLaunchStarted(pid, timeoutMs);
+        }
+    }
+
+    private void notifyAxBurstEngineAppLaunchFinished(int pid) {
+        if (pid <= 0) {
+            return;
+        }
+        final AxBurstEngineImpl engine = LocalServices.getService(AxBurstEngineImpl.class);
+        if (engine != null) {
+            engine.onAppLaunchFinished(pid);
+        }
+    }
+
+    private static final class AxLaunchProcess {
+        final String processName;
+        final int uid;
+        final long timeoutMs;
+        int pid;
+
+        AxLaunchProcess(String processName, int uid, int pid, long timeoutMs) {
+            this.processName = processName;
+            this.uid = uid;
+            this.pid = pid;
+            this.timeoutMs = timeoutMs;
+        }
+
+        boolean matches(ProcessRecord app) {
+            return processName != null && processName.equals(app.processName) && uid == app.uid;
+        }
+    }
+
+    private static long axLaunchTimeoutMs(int temperature) {
+        switch (temperature) {
+            case ActivityMetricsLaunchObserver.TEMPERATURE_HOT:
+                return AX_LAUNCH_HOT_TIMEOUT_MS;
+            case ActivityMetricsLaunchObserver.TEMPERATURE_WARM:
+                return AX_LAUNCH_WARM_TIMEOUT_MS;
+            case ActivityMetricsLaunchObserver.TEMPERATURE_COLD:
+            default:
+                return AX_LAUNCH_COLD_TIMEOUT_MS;
+        }
     }
 }

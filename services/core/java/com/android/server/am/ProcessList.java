@@ -2954,6 +2954,11 @@ public final class ProcessList implements ProcessStateController.ProcessLruUpdat
                         ? PROC_START_TIMEOUT_WITH_WRAPPER : PROC_START_TIMEOUT);
             }
         }
+        final AxBurstEngineImpl engine = LocalServices.getService(AxBurstEngineImpl.class);
+        if (engine != null) {
+            engine.onProcessStarted(app);
+        }
+        mService.notifyAxBurstEngineProcessStarted(app);
         dispatchProcessStarted(app, pid);
         checkSlow(app.getStartTime(), "startProcess: done updating pids map");
         return true;

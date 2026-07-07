@@ -36,6 +36,7 @@ public class AsyncBatchSession extends BatchSession {
     private final Runnable mLockedUpdateRunnable;
     private boolean mRunUpdate = false;
     private boolean mBoostPriority = false;
+    private Handler mPostHandler;
 
     private ArrayList<Runnable> mBatchList = new ArrayList<>();
 
@@ -59,6 +60,12 @@ public class AsyncBatchSession extends BatchSession {
     public void postToHead() {
         if (isActive()) {
             mBoostPriority = true;
+        }
+    }
+
+    public void postToHandlerOnClose(Handler handler) {
+        if (isActive()) {
+            mPostHandler = handler;
         }
     }
 
@@ -112,12 +119,17 @@ public class AsyncBatchSession extends BatchSession {
     protected void onClose() {
         final ArrayList<Runnable> list = new ArrayList<>(mBatchList);
         final boolean runUpdate = mRunUpdate;
+        final Handler handler = mPostHandler != null ? mPostHandler : mHandler;
 
-        // Return if there is nothing to do.
-        if (list.isEmpty() && !runUpdate) return;
+        if (list.isEmpty() && !runUpdate) {
+            mPostHandler = null;
+            mBoostPriority = false;
+            return;
+        }
 
         mBatchList.clear();
         mRunUpdate = false;
+        mPostHandler = null;
 
         // offload all of the queued up work to the Handler thread.
         final Runnable batchedWorkload = () -> {
@@ -135,9 +147,9 @@ public class AsyncBatchSession extends BatchSession {
             // The priority of this BatchSession has been boosted. Post to the front of the
             // Handler queue.
             mBoostPriority = false;
-            mHandler.postAtFrontOfQueue(batchedWorkload);
+            handler.postAtFrontOfQueue(batchedWorkload);
         } else {
-            mHandler.post(batchedWorkload);
+            handler.post(batchedWorkload);
         }
     }
 }

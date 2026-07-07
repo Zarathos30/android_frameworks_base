@@ -123,6 +123,7 @@ import android.os.Binder;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.OperationCanceledException;
+import android.os.Process;
 import android.os.RemoteException;
 import android.os.Trace;
 import android.os.UserHandle;
@@ -139,8 +140,10 @@ import com.android.internal.app.HeavyWeightSwitcherActivity;
 import com.android.internal.app.IVoiceInteractor;
 import com.android.internal.protolog.ProtoLog;
 import com.android.internal.util.FrameworkStatsLog;
+import com.android.server.LocalServices;
 import com.android.server.UiThread;
 import com.android.server.am.ActivityManagerService.IntentCreatorToken;
+import com.android.server.am.AxBurstEngineImpl;
 import com.android.server.am.PendingIntentRecord;
 import com.android.server.pm.InstantAppResolver;
 import com.android.server.pm.PackageArchiver;
@@ -788,6 +791,7 @@ class ActivityStarter {
         ActivityRecord launchingRecord = null;
         try {
             onExecutionStarted();
+            noteStartActivityBoost();
 
             if (mRequest.intent != null) {
                 // Refuse possible leaked file descriptors
@@ -1020,6 +1024,29 @@ class ActivityStarter {
         return res;
     }
 
+    private void noteStartActivityBoost() {
+        final int callingPid = Binder.getCallingPid();
+        if (callingPid <= 0 || callingPid == Process.myPid()) {
+            return;
+        }
+        final AxBurstEngineImpl engine = LocalServices.getService(AxBurstEngineImpl.class);
+        if (engine != null) {
+            engine.onAppLaunchPrepared();
+            engine.onStartActivityBinder(Process.myTid());
+        }
+    }
+
+    private void noteRecentsLaunchSourceBoost(WindowProcessController callerApp, int callingUid) {
+        if (callerApp == null || callerApp.getPid() <= 0
+                || !mService.isCallerRecents(callingUid)) {
+            return;
+        }
+        final AxBurstEngineImpl engine = LocalServices.getService(AxBurstEngineImpl.class);
+        if (engine != null) {
+            engine.onAppLaunchSource(callerApp.getPid(), callerApp.mUid);
+        }
+    }
+
     /**
      * Executing activity start request and starts the journey of starting an activity. Here
      * begins with performing several preliminary checks. The normally activity launch flow will
@@ -1066,6 +1093,7 @@ class ActivityStarter {
             if (callerApp != null) {
                 callingPid = callerApp.getPid();
                 callingUid = callerApp.mInfo.uid;
+                noteRecentsLaunchSourceBoost(callerApp, callingUid);
             } else {
                 Slog.w(TAG, "Unable to find app for caller " + caller + " (pid=" + callingPid
                         + ") when starting: " + intent.toString());

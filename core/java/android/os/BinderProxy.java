@@ -20,6 +20,7 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.ActivityManager;
 import android.app.AppOpsManager;
+import android.app.AxBurstEngine;
 import android.util.Log;
 import android.util.SparseIntArray;
 
@@ -50,6 +51,8 @@ import java.util.concurrent.TimeUnit;
  */
 public final class BinderProxy implements IBinder {
     // See android_util_Binder.cpp for the native half of this.
+
+    private static final int FLAG_AX_UX_BOOST = 0x00000080;
 
     // Assume the process-wide default value when created
     volatile boolean mWarnOnBlocking = Binder.sWarnOnBlocking;
@@ -540,6 +543,10 @@ public final class BinderProxy implements IBinder {
      */
     public boolean transact(int code, Parcel data, Parcel reply, int flags) throws RemoteException {
         Binder.checkParcel(this, code, data, "Unreasonably large binder buffer");
+
+        if (AxBurstEngine.isBinderUxEnabled()) {
+            flags |= FLAG_AX_UX_BOOST;
+        }
 
         boolean warnOnBlocking = mWarnOnBlocking; // Cache it to reduce volatile access.
 

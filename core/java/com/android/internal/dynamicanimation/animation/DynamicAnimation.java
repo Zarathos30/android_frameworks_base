@@ -22,6 +22,7 @@ import android.annotation.FloatRange;
 import android.annotation.MainThread;
 import android.annotation.NonNull;
 import android.annotation.SuppressLint;
+import android.app.AxBurstEngine;
 import android.os.Looper;
 import android.util.AndroidRuntimeException;
 import android.util.FloatProperty;
@@ -656,7 +657,9 @@ public abstract class DynamicAnimation<T extends DynamicAnimation<T>>
                 throw new IllegalArgumentException("Starting value need to be in between min"
                         + " value and max value");
             }
+            AxBurstEngine.prepareForAnim();
             getAnimationHandler().addAnimationFrameCallback(this, 0);
+            AxBurstEngine.onAnimationStart();
         }
     }
 
@@ -715,6 +718,7 @@ public abstract class DynamicAnimation<T extends DynamicAnimation<T>>
         getAnimationHandler().removeCallback(this);
         mLastFrameTime = 0;
         mStartValueIsSet = false;
+        AxBurstEngine.onAnimationEnd();
         for (int i = 0; i < mEndListeners.size(); i++) {
             if (mEndListeners.get(i) != null) {
                 mEndListeners.get(i).onAnimationEnd(this, canceled, mValue, mVelocity);

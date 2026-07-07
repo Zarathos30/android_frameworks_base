@@ -214,6 +214,7 @@ public class ActivityTaskSupervisor implements RecentTasks.Callbacks {
      * is starting while the device is sleeping and then the device is unlocked in a short time.
      */
     private static final int IDLE_NOW_DELAY_WHILE_SLEEPING_MS = 100;
+    private static final int IDLE_NOW_DELAY_WHILE_TRANSITION_MS = 10;
 
     private static final int IDLE_TIMEOUT_MSG = FIRST_SUPERVISOR_TASK_MSG;
     private static final int IDLE_NOW_MSG = FIRST_SUPERVISOR_TASK_MSG + 1;
@@ -1085,7 +1086,12 @@ public class ActivityTaskSupervisor implements RecentTasks.Callbacks {
             // Guard with targetSDK on Android 15+.
             // To not bundle the transaction, dispatch the pending before schedule new
             // transaction.
-            mService.getLifecycleManager().dispatchPendingTransaction(proc.getThread());
+            Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "realStartActivityLocked");
+            try {
+                mService.getLifecycleManager().dispatchPendingTransaction(proc.getThread());
+            } finally {
+                Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
+            }
         }
         final boolean isSuccessful = mService.getLifecycleManager().scheduleTransactionItems(
                 proc.getThread(),
@@ -2412,10 +2418,19 @@ public class ActivityTaskSupervisor implements RecentTasks.Callbacks {
     final void scheduleIdle() {
         if (!mHandler.hasMessages(IDLE_NOW_MSG)) {
             if (DEBUG_IDLE) Slog.d(TAG_IDLE, "scheduleIdle: Callers=" + Debug.getCallers(4));
-            final long delayMs = mService.isSleepingLocked() && mService.mayBeLaunchingApp()
-                    ? IDLE_NOW_DELAY_WHILE_SLEEPING_MS : 0;
+            final long delayMs = getIdleNowDelayMillis();
             mHandler.sendEmptyMessageDelayed(IDLE_NOW_MSG, delayMs);
         }
+    }
+
+    private long getIdleNowDelayMillis() {
+        if (mService.isSleepingLocked() && mService.mayBeLaunchingApp()) {
+            return IDLE_NOW_DELAY_WHILE_SLEEPING_MS;
+        }
+        if (mService.getTransitionController().inTransition()) {
+            return IDLE_NOW_DELAY_WHILE_TRANSITION_MS;
+        }
+        return 0;
     }
 
     /** This is only used for switching between resumed activities without activity state change. */

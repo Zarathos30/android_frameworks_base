@@ -17,6 +17,7 @@
 package com.android.server.wm;
 
 import android.annotation.NonNull;
+import android.app.AxBurstEngine;
 import android.app.IApplicationThread;
 import android.app.compat.CompatChanges;
 import android.app.servertransaction.ClientTransaction;
@@ -71,7 +72,7 @@ class ClientLifecycleManager {
      */
     @VisibleForTesting
     boolean scheduleTransaction(@NonNull ClientTransaction transaction) {
-        final RemoteException e = transaction.schedule();
+        final RemoteException e = scheduleTransactionWithBinderUx(transaction);
         if (e != null) {
             final WindowProcessController wpc = mWms.mAtmService.getProcessController(
                     transaction.getClient());
@@ -79,6 +80,17 @@ class ClientLifecycleManager {
             return false;
         }
         return true;
+    }
+
+    private static RemoteException scheduleTransactionWithBinderUx(
+            @NonNull ClientTransaction transaction) {
+        final int previousFlag = AxBurstEngine.setBinderThreadUxFlag(
+                AxBurstEngine.BINDER_UX_ENQUEUE);
+        try {
+            return transaction.schedule();
+        } finally {
+            AxBurstEngine.setBinderThreadUxFlag(previousFlag);
+        }
     }
 
     /**

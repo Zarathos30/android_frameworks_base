@@ -136,12 +136,14 @@ import com.android.internal.util.FrameworkStatsLog;
 import com.android.internal.util.LatencyTracker;
 import com.android.internal.util.Preconditions;
 import com.android.server.EventLogTags;
+import com.android.server.LocalServices;
 import com.android.server.LockGuard;
 import com.android.server.PackageWatchdog;
 import com.android.server.ServiceThread;
 import com.android.server.SystemService;
 import com.android.server.UiThread;
 import com.android.server.Watchdog;
+import com.android.server.am.AxBurstEngineImpl;
 import com.android.server.am.BatteryStatsService;
 import com.android.server.display.DisplayGroup;
 import com.android.server.display.feature.DeviceConfigParameterProvider;
@@ -181,7 +183,6 @@ import java.util.concurrent.Executor;
 public final class PowerManagerService extends SystemService
         implements Watchdog.Monitor {
     private static final String TAG = "PowerManagerService";
-
     private static final boolean DEBUG = false;
     private static final boolean DEBUG_SPEW = DEBUG && true;
 
@@ -5004,6 +5005,9 @@ public final class PowerManagerService extends SystemService
 
     private void setPowerBoostInternal(int boost, int durationMs) {
         // Maybe filter the event.
+        if (tryAxPowerBoost(boost, durationMs)) {
+            return;
+        }
         mNativeWrapper.nativeSetPowerBoost(boost, durationMs);
     }
 
@@ -5013,7 +5017,20 @@ public final class PowerManagerService extends SystemService
                 && mBatterySaverStateMachine.getBatterySaverController().isLaunchBoostDisabled()) {
             return false;
         }
+        if (tryAxPowerMode(mode, enabled)) {
+            return true;
+        }
         return mNativeWrapper.nativeSetPowerMode(mode, enabled);
+    }
+
+    private static boolean tryAxPowerBoost(int boost, int durationMs) {
+        final AxBurstEngineImpl engine = LocalServices.getService(AxBurstEngineImpl.class);
+        return engine != null && engine.onPowerBoost(boost, durationMs);
+    }
+
+    private static boolean tryAxPowerMode(int mode, boolean enabled) {
+        final AxBurstEngineImpl engine = LocalServices.getService(AxBurstEngineImpl.class);
+        return engine != null && engine.onPowerMode(mode, enabled);
     }
 
     @VisibleForTesting

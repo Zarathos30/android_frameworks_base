@@ -188,6 +188,7 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.ActivityTaskManager;
 import android.app.AppOpsManager;
+import android.app.AxBurstEngine;
 import android.app.admin.DevicePolicyCache;
 import android.app.servertransaction.WindowStateInsetsControlChangeItem;
 import android.app.servertransaction.WindowStateResizeItem;
@@ -3282,7 +3283,8 @@ class WindowState extends WindowContainer<WindowState> implements WindowManagerP
                 Trace.instant(TRACE_TAG_WINDOW_MANAGER, "wm.sendAppVis_" + getWindowTag()
                         + " id=" + seqId + " vis=" + clientVisible + " surf=" + mHasSurface);
             }
-            mClient.dispatchAppVisibility(clientVisible, seqId);
+            AxBurstEngine.withBinderUxFlagForRemote(AxBurstEngine.BINDER_UX_ENQUEUE,
+                    () -> mClient.dispatchAppVisibility(clientVisible, seqId));
         } catch (RemoteException e) {
             // The remote client fails to process the visibility message. That means it is in a
             // wrong state. E.g. the binder buffer is running out or the binder threads are dead.

@@ -251,6 +251,14 @@ public abstract class ProcessRecordInternal {
     /** Returns the package name of the application this process belongs to. */
     public abstract String getPackageName();
 
+    public boolean isSystemUi() {
+        return "com.android.systemui".equals(getPackageName());
+    }
+
+    public boolean isLauncher3() {
+        return "com.android.launcher3".equals(getPackageName());
+    }
+
     /** Returns whether this process is for an instant app. */
     public abstract boolean isInstantApp();
 
@@ -500,6 +508,9 @@ public abstract class ProcessRecordInternal {
      */
     @CompositeRWLock({"mServiceLock", "mProcLock"})
     private int mSetSchedGroup = SCHED_GROUP_BACKGROUND;
+
+    @CompositeRWLock({"mServiceLock", "mProcLock"})
+    private int mSetProcessGroup = Process.THREAD_GROUP_DEFAULT;
 
     /**
      * Currently computed process state.
@@ -1076,6 +1087,22 @@ public abstract class ProcessRecordInternal {
     @GuardedBy(anyOf = {"mServiceLock", "mProcLock"})
     public int getSetSchedGroup() {
         return mSetSchedGroup;
+    }
+
+    @GuardedBy({"mServiceLock", "mProcLock"})
+    public void setSetProcessGroup(int setProcessGroup) {
+        mSetProcessGroup = setProcessGroup;
+    }
+
+    @GuardedBy(anyOf = {"mServiceLock", "mProcLock"})
+    public int getSetProcessGroup() {
+        return mSetProcessGroup;
+    }
+
+    public RemoteAnimationInfo getRemoteAnimationInfo() {
+        synchronized (mProcLock) {
+            return new RemoteAnimationInfo(getPid(), mSetProcessGroup);
+        }
     }
 
     /** Sets the current process state, and notifies the observer. */
@@ -1746,6 +1773,7 @@ public abstract class ProcessRecordInternal {
         mCurRawAdj = mSetRawAdj = mCurAdj = mSetAdj = mVerifiedAdj = INVALID_ADJ;
         mCurCapability = mSetCapability = PROCESS_CAPABILITY_NONE;
         mCurSchedGroup = mSetSchedGroup = SCHED_GROUP_BACKGROUND;
+        mSetProcessGroup = Process.THREAD_GROUP_DEFAULT;
         mCurProcState = mCurRawProcState = mSetProcState = PROCESS_STATE_NONEXISTENT;
         for (int i = 0; i < mCachedCompatChanges.length; i++) {
             mCachedCompatChanges[i] = VALUE_INVALID;
@@ -1867,6 +1895,15 @@ public abstract class ProcessRecordInternal {
         mRenderThreadTid = renderThreadTid;
     }
 
+    public static final class RemoteAnimationInfo {
+        public final int pid;
+        public final int processGroup;
+
+        RemoteAnimationInfo(int pid, int processGroup) {
+            this.pid = pid;
+            this.processGroup = processGroup;
+        }
+    }
 
     /**
      * Lazily initiates and returns the track name for tracing.

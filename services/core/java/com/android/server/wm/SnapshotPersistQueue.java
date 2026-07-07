@@ -37,6 +37,7 @@ import android.window.TaskSnapshot;
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.server.LocalServices;
+import com.android.server.am.AxBurstEngineImpl;
 import com.android.server.pm.UserManagerInternal;
 import com.android.server.wm.BaseAppSnapshotPersister.LowResSnapshotSupplier;
 import com.android.server.wm.BaseAppSnapshotPersister.PersistInfoProvider;
@@ -57,6 +58,7 @@ import java.util.function.Consumer;
 class SnapshotPersistQueue {
     private static final String TAG = TAG_WITH_CLASS_NAME ? "TaskSnapshotPersister" : TAG_WM;
     private static final long DELAY_MS = 100;
+    private static final long UI_PERF_WRITE_DEFER_MS = 32;
     static final int MAX_HW_STORE_QUEUE_DEPTH = 2;
     private static final int COMPRESS_QUALITY = 95;
 
@@ -124,6 +126,15 @@ class SnapshotPersistQueue {
         synchronized (mLock) {
             return mWriteQueue.isEmpty() || mQueueIdling || mPaused;
         }
+    }
+
+    @GuardedBy("mLock")
+    private boolean shouldDeferWriteLocked() {
+        if (mShutdown || mWriteQueue.isEmpty()) {
+            return false;
+        }
+        final AxBurstEngineImpl burstEngine = LocalServices.getService(AxBurstEngineImpl.class);
+        return burstEngine != null && burstEngine.shouldDeferBackgroundIo();
     }
 
     void waitFlush(long timeout) {
@@ -260,7 +271,7 @@ class SnapshotPersistQueue {
                 WriteQueueItem next;
                 boolean isReadyToWrite = false;
                 synchronized (mLock) {
-                    if (mPaused) {
+                    if (mPaused || shouldDeferWriteLocked()) {
                         next = null;
                     } else {
                         next = mWriteQueue.poll();
@@ -289,7 +300,8 @@ class SnapshotPersistQueue {
                 }
                 synchronized (mLock) {
                     final boolean writeQueueEmpty = mWriteQueue.isEmpty();
-                    if (!writeQueueEmpty && !mPaused) {
+                    final boolean deferWrite = shouldDeferWriteLocked();
+                    if (!writeQueueEmpty && !mPaused && !deferWrite) {
                         continue;
                     }
                     if (mShutdown && writeQueueEmpty) {
@@ -297,7 +309,11 @@ class SnapshotPersistQueue {
                     }
                     try {
                         mQueueIdling = writeQueueEmpty;
-                        mLock.wait();
+                        if (deferWrite) {
+                            mLock.wait(UI_PERF_WRITE_DEFER_MS);
+                        } else {
+                            mLock.wait();
+                        }
                         mQueueIdling = false;
                     } catch (InterruptedException e) {
                     }

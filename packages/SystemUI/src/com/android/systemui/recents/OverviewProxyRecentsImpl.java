@@ -16,6 +16,7 @@
 
 package com.android.systemui.recents;
 
+import android.app.AxBurstEngine;
 import android.content.Context;
 import android.os.Handler;
 import android.os.RemoteException;
@@ -62,7 +63,8 @@ public class OverviewProxyRecentsImpl implements RecentsImplementation {
         ILauncherProxy launcherProxy = mLauncherProxyService.getProxy();
         if (launcherProxy != null) {
             try {
-                launcherProxy.onOverviewShown(triggeredFromAltTab);
+                AxBurstEngine.withBinderUxFlagForRemote(AxBurstEngine.BINDER_UX_ENQUEUE,
+                        () -> launcherProxy.onOverviewShown(triggeredFromAltTab));
             } catch (RemoteException e) {
                 Log.e(TAG, "Failed to send overview show event to launcher.", e);
             }
@@ -74,7 +76,9 @@ public class OverviewProxyRecentsImpl implements RecentsImplementation {
         ILauncherProxy launcherProxy = mLauncherProxyService.getProxy();
         if (launcherProxy != null) {
             try {
-                launcherProxy.onOverviewHidden(triggeredFromAltTab, triggeredFromHomeKey);
+                AxBurstEngine.withBinderUxFlagForRemote(AxBurstEngine.BINDER_UX_ENQUEUE,
+                        () -> launcherProxy.onOverviewHidden(
+                                triggeredFromAltTab, triggeredFromHomeKey));
             } catch (RemoteException e) {
                 Log.e(TAG, "Failed to send overview hide event to launcher.", e);
             }
@@ -88,8 +92,10 @@ public class OverviewProxyRecentsImpl implements RecentsImplementation {
         if (launcherProxy != null) {
             final Runnable toggleRecents = () -> {
                 try {
-                    if (mLauncherProxyService.getProxy() != null) {
-                        mLauncherProxyService.getProxy().onOverviewToggle();
+                    ILauncherProxy proxy = mLauncherProxyService.getProxy();
+                    if (proxy != null) {
+                        AxBurstEngine.withBinderUxFlagForRemote(AxBurstEngine.BINDER_UX_ENQUEUE,
+                                proxy::onOverviewToggle);
                         mLauncherProxyService.notifyToggleRecentApps();
                     }
                 } catch (RemoteException e) {

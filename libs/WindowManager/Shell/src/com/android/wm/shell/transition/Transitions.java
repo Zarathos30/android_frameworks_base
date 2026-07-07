@@ -47,6 +47,7 @@ import static com.android.wm.shell.shared.TransitionUtil.isOpeningType;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.ActivityTaskManager;
+import android.app.AxBurstEngine;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.database.ContentObserver;
@@ -1225,16 +1226,18 @@ public class Transitions implements RemoteCallable<Transitions>,
         // Now perform all the finish callbacks (starting with the playing one and then all the
         // transitions merged into it).
         releaseSurfaces(active.mInfo);
-        mOrganizer.finishTransition(active.mToken, wct);
-        if (active.mMerged != null) {
-            for (int iM = 0; iM < active.mMerged.size(); ++iM) {
-                ActiveTransition merged = active.mMerged.get(iM);
-                mOrganizer.finishTransition(merged.mToken, null /* wct */);
-                releaseSurfaces(merged.mInfo);
-                mKnownTransitions.remove(merged.mToken);
+        AxBurstEngine.withBinderUxFlag(AxBurstEngine.BINDER_UX_ENQUEUE, () -> {
+            mOrganizer.finishTransition(active.mToken, wct);
+            if (active.mMerged != null) {
+                for (int iM = 0; iM < active.mMerged.size(); ++iM) {
+                    ActiveTransition merged = active.mMerged.get(iM);
+                    mOrganizer.finishTransition(merged.mToken, null /* wct */);
+                    releaseSurfaces(merged.mInfo);
+                    mKnownTransitions.remove(merged.mToken);
+                }
+                active.mMerged.clear();
             }
-            active.mMerged.clear();
-        }
+        });
         mKnownTransitions.remove(token);
 
         // Now that this is done, check the ready queue for more work.

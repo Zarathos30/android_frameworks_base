@@ -30,6 +30,7 @@ import android.annotation.ColorInt;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.ActivityManager;
+import android.app.AxBurstEngine;
 import android.app.IApplicationThread;
 import android.app.WindowConfiguration;
 import android.graphics.Point;
@@ -118,6 +119,10 @@ class TransitionController {
 
     private final ArrayList<TransitionPlayerRecord> mTransitionPlayers = new ArrayList<>();
     final TransitionMetricsReporter mTransitionMetricsReporter = new TransitionMetricsReporter();
+    private final ArrayMap<Transition, ArrayList<WindowProcessController>> mRemoteAnimationTargets =
+            new ArrayMap<>();
+    private final ArrayMap<WindowProcessController, Integer> mRemoteAnimationTargetCounts =
+            new ArrayMap<>();
 
     final ActivityTaskManagerService mAtm;
     BLASTSyncEngine mSyncEngine;
@@ -927,8 +932,9 @@ class TransitionController {
 
             transition.mLogger.mRequestTimeNs = SystemClock.elapsedRealtimeNanos();
             transition.mLogger.mRequest = request;
-            getTransitionPlayer().requestStartTransition(
-                    transition.getToken(), request);
+            AxBurstEngine.withBinderUxFlagForRemote(AxBurstEngine.BINDER_UX_ENQUEUE,
+                    () -> getTransitionPlayer().requestStartTransition(
+                            transition.getToken(), request));
             if (remoteTransition != null) {
                 transition.setRemoteAnimationApp(remoteTransition.getAppThread());
             }
@@ -1100,6 +1106,7 @@ class TransitionController {
             // reset track-count now since shell-side is idle.
             mTrackCount = 0;
         }
+        updateTransitionTargetsRemoteAnimation(record, false);
         updateRunningRemoteAnimation(record, false /* isPlaying */);
         record.finishTransition(chain);
         for (int i = mAnimatingExitWindows.size() - 1; i >= 0; i--) {
@@ -1277,6 +1284,7 @@ class TransitionController {
             }
         }
         mPlayingTransitions.add(transition);
+        updateTransitionTargetsRemoteAnimation(transition, true);
         updateRunningRemoteAnimation(transition, true /* isPlaying */);
         // Sync engine should become idle after this, so the idle listener will check the queue.
     }
@@ -1475,8 +1483,94 @@ class TransitionController {
         }
     }
 
+    private void updateTransitionTargetsRemoteAnimation(Transition transition, boolean running) {
+        if (!running) {
+            final ArrayList<WindowProcessController> targets =
+                    mRemoteAnimationTargets.remove(transition);
+            if (targets != null) {
+                finishRemoteAnimationTargets(targets);
+            }
+            return;
+        }
+        final ArrayList<WindowProcessController> targets = collectRemoteAnimationTargets(
+                transition);
+        if (!targets.isEmpty()) {
+            startRemoteAnimationTargets(targets);
+            mRemoteAnimationTargets.put(transition, targets);
+        }
+    }
+
+    private void startRemoteAnimationTargets(ArrayList<WindowProcessController> targets) {
+        for (int i = targets.size() - 1; i >= 0; i--) {
+            final WindowProcessController app = targets.get(i);
+            final Integer count = mRemoteAnimationTargetCounts.get(app);
+            if (count == null) {
+                mRemoteAnimationTargetCounts.put(app, 1);
+                app.addAnimatingReason(
+                        WindowProcessController.ANIMATING_REASON_REMOTE_ANIMATION_TARGET);
+            } else {
+                mRemoteAnimationTargetCounts.put(app, count + 1);
+            }
+        }
+    }
+
+    private void finishRemoteAnimationTargets(ArrayList<WindowProcessController> targets) {
+        for (int i = targets.size() - 1; i >= 0; i--) {
+            final WindowProcessController app = targets.get(i);
+            final Integer count = mRemoteAnimationTargetCounts.get(app);
+            if (count == null) {
+                continue;
+            }
+            if (count > 1) {
+                mRemoteAnimationTargetCounts.put(app, count - 1);
+                continue;
+            }
+            mRemoteAnimationTargetCounts.remove(app);
+            app.removeAnimatingReason(
+                    WindowProcessController.ANIMATING_REASON_REMOTE_ANIMATION_TARGET);
+        }
+    }
+
+    private ArrayList<WindowProcessController> collectRemoteAnimationTargets(
+            Transition transition) {
+        final ArrayList<WindowProcessController> apps = new ArrayList<>();
+        if (transition.mTargets == null || transition.mTargets.isEmpty()) {
+            return apps;
+        }
+        for (int i = transition.mTargets.size() - 1; i >= 0; i--) {
+            final WindowProcessController app = getRemoteAnimationTarget(
+                    transition.mTargets.get(i).mContainer);
+            if (app != null && !apps.contains(app)) {
+                apps.add(app);
+            }
+        }
+        return apps;
+    }
+
+    private static WindowProcessController getRemoteAnimationTarget(
+            WindowContainer<?> container) {
+        final ActivityRecord activity = getRemoteAnimationTargetActivity(container);
+        if (activity == null) {
+            return null;
+        }
+        return activity.app;
+    }
+
+    private static ActivityRecord getRemoteAnimationTargetActivity(WindowContainer<?> container) {
+        if (container == null) {
+            return null;
+        }
+        final ActivityRecord activity = container.asActivityRecord();
+        if (activity != null) {
+            return activity;
+        }
+        final TaskFragment taskFragment = container.asTaskFragment();
+        return taskFragment != null ? taskFragment.topRunningActivity() : null;
+    }
+
     /** Called when a transition is aborted. This should only be called by {@link Transition} */
     void onAbort(Transition transition) {
+        updateTransitionTargetsRemoteAnimation(transition, false);
         if (transition != mCollectingTransition) {
             int waitingIdx = mWaitingTransitions.indexOf(transition);
             if (waitingIdx < 0) {
