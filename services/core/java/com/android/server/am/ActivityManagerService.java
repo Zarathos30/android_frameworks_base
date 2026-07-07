@@ -657,6 +657,7 @@ public class ActivityManagerService extends IActivityManager.Stub
 
     /** Service for optimizing resource usage from background apps. */
     private CachedAppOptimizer mCachedAppOptimizer;
+    private AppBackgroundManager mAppBackgroundManager;
     private AxKernelManagerService mAxKernelManager;
     private PulseEngine mPulseEngine;
     OomAdjuster mOomAdjuster;
@@ -2470,6 +2471,7 @@ public class ActivityManagerService extends IActivityManager.Stub
         mPhantomProcessList = new PhantomProcessList(this);
 
         mCachedAppOptimizer = new CachedAppOptimizer(this);
+        mAppBackgroundManager = new AppBackgroundManager(this);
         mAxKernelManager = new AxKernelManagerService(mContext);
         mPulseEngine = getOrCreatePulseEngine();
         mProcessStateController = new ProcessStateController
@@ -2543,6 +2545,7 @@ public class ActivityManagerService extends IActivityManager.Stub
         mPhantomProcessList = new PhantomProcessList(this);
         final Looper activityTaskLooper = DisplayThread.get().getLooper();
         mCachedAppOptimizer = new CachedAppOptimizer(this);
+        mAppBackgroundManager = new AppBackgroundManager(this);
         mAxKernelManager = new AxKernelManagerService(mContext);
         mPulseEngine = getOrCreatePulseEngine();
         mProcessStateController = new ProcessStateController
@@ -9162,6 +9165,10 @@ public class ActivityManagerService extends IActivityManager.Stub
         mAxKernelManager.systemReady();
         t.traceEnd();
 
+        t.traceBegin("AppBackgroundManager.systemReady");
+        mAppBackgroundManager.systemReady();
+        t.traceEnd();
+
         t.traceBegin("PulseEngine.systemReady");
         mPulseEngine.systemReady();
         final int wakefulness = mWakefulness.get();
@@ -10568,6 +10575,7 @@ public class ActivityManagerService extends IActivityManager.Stub
         synchronized(this) {
             mConstants.dump(pw);
             mCachedAppOptimizer.dump(pw);
+            mAppBackgroundManager.dump(pw);
             mPulseEngine.dump(pw);
             pw.println();
             if (dumpAll) {
@@ -11085,6 +11093,8 @@ public class ActivityManagerService extends IActivityManager.Stub
                 }
             } else if ("cao".equals(cmd)) {
                 mCachedAppOptimizer.dump(pw);
+            } else if ("app-background".equals(cmd)) {
+                mAppBackgroundManager.dump(pw);
             } else if ("pulseengine".equals(cmd)) {
                 mPulseEngine.dump(pw);
             } else if ("timers".equals(cmd)) {
@@ -19520,6 +19530,14 @@ public class ActivityManagerService extends IActivityManager.Stub
             mCachedAppOptimizer.onOomAdjustChanged(oldAdj, newAdj, (ProcessRecord) app);
         }
 
+        @Override
+        @GuardedBy({"ActivityManagerService.this", "ActivityManagerService.this.mProcLock"})
+        public void onSchedulingGroupChanged(ProcessRecordInternal app, int oldSchedGroup,
+                int curSchedGroup) {
+            mAppBackgroundManager.onProcessSchedulingGroupChanged((ProcessRecord) app,
+                    oldSchedGroup, curSchedGroup);
+        }
+
         public void onProcessFreezabilityChanged(ProcessRecordInternal app, boolean freezePolicy,
                 @OomAdjReason int oomAdjReason, boolean immediate, int oldOomAdj,
                 boolean shouldNotFreezeChanged) {
@@ -19640,6 +19658,10 @@ public class ActivityManagerService extends IActivityManager.Stub
 
     CachedAppOptimizer getCachedAppOptimizer() {
         return mCachedAppOptimizer;
+    }
+
+    AppBackgroundManager getAppBackgroundManager() {
+        return mAppBackgroundManager;
     }
 
     PulseEngine getPulseEngine() {
