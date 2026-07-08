@@ -250,8 +250,8 @@ public class DisplayModeDirector {
         AxRefreshRateController.getInstance().setRefreshRateUpdateCallback(
                 (min, peak, displayId) -> {
                     synchronized (mLock) {
-                        mSettingsObserver.updateRefreshRateSettingLocked(
-                                min, peak, mSettingsObserver.getDefaultRefreshRate(), displayId);
+                        mSettingsObserver.updateRefreshRateSettingFromControllerLocked(
+                                min, peak, displayId);
                     }
                 });
         mBrightnessObserver.observe(sensorManager);
@@ -972,6 +972,9 @@ public class DisplayModeDirector {
 
         private final Context mContext;
         private final Handler mHandler;
+        @GuardedBy("mLock")
+        private final SparseArray<RefreshRateRange> mControllerRefreshRateRangesByDisplay =
+                new SparseArray<>();
         private float mDefaultPeakRefreshRate;
         private float mDefaultRefreshRate;
         private boolean mIsLowPower = false;
@@ -1030,8 +1033,6 @@ public class DisplayModeDirector {
 
         public void observe() {
             final ContentResolver cr = mContext.getContentResolver();
-            mInjector.registerPeakRefreshRateObserver(cr, this);
-            mInjector.registerMinRefreshRateObserver(cr, this);
             cr.registerContentObserver(mLowPowerModeSetting, /* notifyDescendants= */ false, this,
                     UserHandle.USER_ALL);
             cr.registerContentObserver(mMatchContentFrameRateSetting,
@@ -1166,31 +1167,28 @@ public class DisplayModeDirector {
          */
         @GuardedBy("mLock")
         private void updateRefreshRateSettingLocked(int displayId) {
-            final ContentResolver cr = mContext.getContentResolver();
             if (!mSupportedModesByDisplay.contains(displayId)) {
                 Slog.e(TAG, "Cannot update refresh rate setting: no supported modes for display "
                         + displayId);
                 return;
             }
-            float highestRefreshRate = getMaxRefreshRateLocked(displayId);
-
-            float minRefreshRate = Settings.System.getFloatForUser(cr,
-                    Settings.System.MIN_REFRESH_RATE, 0f, UserHandle.USER_CURRENT);
-            if (Float.isInfinite(minRefreshRate)) {
-                // Infinity means that we want the highest possible refresh rate
-                minRefreshRate = highestRefreshRate;
+            final RefreshRateRange refreshRateRange =
+                    mControllerRefreshRateRangesByDisplay.get(displayId);
+            if (refreshRateRange == null) {
+                return;
             }
+            updateRefreshRateSettingLocked(refreshRateRange.min, refreshRateRange.max,
+                    mDefaultRefreshRate, displayId);
+        }
 
-            float peakRefreshRate = Settings.System.getFloatForUser(cr,
-                    Settings.System.PEAK_REFRESH_RATE, mDefaultPeakRefreshRate,
-                    UserHandle.USER_CURRENT);
-            if (Float.isInfinite(peakRefreshRate)) {
-                // Infinity means that we want the highest possible refresh rate
-                peakRefreshRate = highestRefreshRate;
+        @GuardedBy("mLock")
+        private void updateRefreshRateSettingFromControllerLocked(float minRefreshRate,
+                float peakRefreshRate, int displayId) {
+            mControllerRefreshRateRangesByDisplay.put(displayId,
+                    new RefreshRateRange(minRefreshRate, peakRefreshRate));
+            if (mSupportedModesByDisplay.contains(displayId)) {
+                updateRefreshRateSettingLocked(displayId);
             }
-
-            updateRefreshRateSettingLocked(minRefreshRate, peakRefreshRate, mDefaultRefreshRate,
-                    displayId);
         }
 
         @GuardedBy("mLock")
@@ -1251,7 +1249,9 @@ public class DisplayModeDirector {
             }
         }
 
+        @GuardedBy("mLock")
         private void removeRefreshRateSetting(int displayId) {
+            mControllerRefreshRateRangesByDisplay.remove(displayId);
             mVotesStorage.updateVote(displayId, Vote.PRIORITY_USER_SETTING_PEAK_REFRESH_RATE,
                     null);
             mVotesStorage.updateVote(displayId, Vote.PRIORITY_USER_SETTING_PEAK_RENDER_FRAME_RATE,
@@ -1374,6 +1374,9 @@ public class DisplayModeDirector {
         private Display.Mode findDefaultModeByRefreshRateLocked(int displayId, float refreshRate) {
             Display.Mode[] modes = mAppSupportedModesByDisplay.get(displayId);
             Display.Mode defaultMode = mDefaultModeByDisplay.get(displayId);
+            if (modes == null || defaultMode == null) {
+                return null;
+            }
             for (int i = 0; i < modes.length; i++) {
                 if (modes[i].matches(defaultMode.getPhysicalWidth(),
                         defaultMode.getPhysicalHeight(), refreshRate)) {

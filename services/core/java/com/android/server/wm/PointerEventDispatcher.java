@@ -43,7 +43,8 @@ public class PointerEventDispatcher extends InputEventReceiver {
             if (event instanceof MotionEvent
                     && (event.getSource() & InputDevice.SOURCE_CLASS_POINTER) != 0) {
                 MotionEvent motionEvent = (MotionEvent) event;
-                mRefreshRateController.onPointerEvent();
+                mRefreshRateController.onPointerEvent(
+                        motionEvent.getDisplayId(), motionEvent.getActionMasked());
                 PointerEventListener[] listeners;
                 synchronized (mListeners) {
                     if (mListenersArray == null) {
