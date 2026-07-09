@@ -144,6 +144,7 @@ import com.android.server.SystemService;
 import com.android.server.UiThread;
 import com.android.server.Watchdog;
 import com.android.server.am.AxBurstEngineImpl;
+import com.android.server.am.AxSmartCpuManager;
 import com.android.server.am.BatteryStatsService;
 import com.android.server.display.DisplayGroup;
 import com.android.server.display.feature.DeviceConfigParameterProvider;
@@ -5028,6 +5029,10 @@ public final class PowerManagerService extends SystemService
     }
 
     private static boolean tryAxPowerBoost(int boost, int durationMs) {
+        final AxSmartCpuManager smartCpu = LocalServices.getService(AxSmartCpuManager.class);
+        if (smartCpu != null) {
+            smartCpu.onPowerBoost(boost, durationMs);
+        }
         final AxBurstEngineImpl engine = LocalServices.getService(AxBurstEngineImpl.class);
         return engine != null && engine.onPowerBoost(boost, durationMs);
     }
