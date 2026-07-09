@@ -127,6 +127,7 @@ import com.android.server.adb.AdbService;
 import com.android.server.alarm.AlarmManagerService;
 import com.android.server.am.ActivityManagerService;
 import com.android.server.am.AxBurstEngineImpl;
+import com.android.server.am.AxDexOptimizer;
 import com.android.server.am.AxIoPrefetcher;
 import com.android.server.am.AxMemoryManagerImpl;
 import com.android.server.am.AxSmartCpuManager;
@@ -1358,6 +1359,11 @@ public final class SystemServer implements Dumpable {
 
         t.traceBegin("StartAxIoPrefetcher");
         mSystemServiceManager.startService(AxIoPrefetcher.class);
+        t.traceEnd();
+
+        t.traceBegin("StartAxDexOptimizer");
+        mSystemServiceManager.startService(new AxDexOptimizer(mSystemContext,
+                mActivityManagerService));
         t.traceEnd();
 
         t.traceBegin("StartAxPcModeService");
