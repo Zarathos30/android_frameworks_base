@@ -129,6 +129,7 @@ import com.android.server.am.ActivityManagerService;
 import com.android.server.am.AxBurstEngineImpl;
 import com.android.server.am.AxMemoryManagerImpl;
 import com.android.server.am.AxSmartCpuManager;
+import com.android.server.am.AxSmartMemoryManager;
 import com.android.server.am.OmniJawsClientService;
 import com.android.server.am.PulseEngine;
 import com.android.server.ambientcontext.AmbientContextManagerService;
@@ -1346,6 +1347,11 @@ public final class SystemServer implements Dumpable {
 
         t.traceBegin("StartAxSmartCpuManager");
         mSystemServiceManager.startService(new AxSmartCpuManager(mSystemContext,
+                mActivityManagerService));
+        t.traceEnd();
+
+        t.traceBegin("StartAxSmartMemoryManager");
+        mSystemServiceManager.startService(new AxSmartMemoryManager(mSystemContext,
                 mActivityManagerService));
         t.traceEnd();
 

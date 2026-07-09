@@ -3002,6 +3002,11 @@ public final class ProcessList implements ProcessStateController.ProcessLruUpdat
         if (smartCpu != null) {
             smartCpu.onProcessStarted(app);
         }
+        final AxSmartMemoryManager smartMemory =
+                LocalServices.getService(AxSmartMemoryManager.class);
+        if (smartMemory != null) {
+            smartMemory.onProcessStarted(app);
+        }
         mService.notifyAxBurstEngineProcessStarted(app);
         dispatchProcessStarted(app, pid);
         checkSlow(app.getStartTime(), "startProcess: done updating pids map");
