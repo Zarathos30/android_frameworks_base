@@ -3007,6 +3007,10 @@ public final class ProcessList implements ProcessStateController.ProcessLruUpdat
         if (smartMemory != null) {
             smartMemory.onProcessStarted(app);
         }
+        final AxIoPrefetcher ioPrefetcher = LocalServices.getService(AxIoPrefetcher.class);
+        if (ioPrefetcher != null) {
+            ioPrefetcher.onProcessStarted(app);
+        }
         mService.notifyAxBurstEngineProcessStarted(app);
         dispatchProcessStarted(app, pid);
         checkSlow(app.getStartTime(), "startProcess: done updating pids map");
