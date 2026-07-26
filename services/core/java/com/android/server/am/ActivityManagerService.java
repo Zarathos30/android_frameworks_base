@@ -20206,6 +20206,12 @@ public class ActivityManagerService extends IActivityManager.Stub
     }
 
     @Override
+    public boolean isSandboxPackageHiddenFromLauncher(String packageName) {
+        final IAxSandboxService service = getAxSandboxService();
+        return service != null && service.isPackageHiddenFromLauncher(packageName);
+    }
+
+    @Override
     public void addSandboxLockedApp(String packageName) {
         final IAxSandboxService service = getAxSandboxService();
         if (service != null) {
@@ -20230,6 +20236,14 @@ public class ActivityManagerService extends IActivityManager.Stub
     }
 
     @Override
+    public void setSandboxPackageHiddenFromLauncher(String packageName, boolean hidden) {
+        final IAxSandboxService service = getAxSandboxService();
+        if (service != null) {
+            service.setPackageHiddenFromLauncher(packageName, hidden);
+        }
+    }
+
+    @Override
     public List<String> getSandboxLockedPackages() {
         final IAxSandboxService service = getAxSandboxService();
         return service != null ? service.getLockedPackages() : Collections.emptyList();
@@ -20239,6 +20253,12 @@ public class ActivityManagerService extends IActivityManager.Stub
     public List<String> getSandboxHiddenPackages() {
         final IAxSandboxService service = getAxSandboxService();
         return service != null ? service.getHiddenPackages() : Collections.emptyList();
+    }
+
+    @Override
+    public List<String> getSandboxHiddenFromLauncherPackages() {
+        final IAxSandboxService service = getAxSandboxService();
+        return service != null ? service.getHiddenFromLauncherPackages() : Collections.emptyList();
     }
 
     @Override
