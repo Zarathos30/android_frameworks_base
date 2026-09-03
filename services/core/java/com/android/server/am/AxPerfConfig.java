@@ -35,6 +35,8 @@ import java.util.TreeMap;
 
 public final class AxPerfConfig {
 
+    private static final String SYSTEM_EXT_THERMAL_CONFIG =
+            "/system_ext/etc/ax_perf_thermal.xml";
     private static final String VENDOR_THERMAL_CONFIG = "/vendor/etc/ax_perf_thermal.xml";
     private static final String SYSTEM_THERMAL_CONFIG = "/system/etc/ax_perf_thermal.xml";
     private static final String ROOT_TAG = "perf-config";
@@ -88,7 +90,8 @@ public final class AxPerfConfig {
     private static synchronized void ensureLoaded() {
         if (sLoaded) return;
         sLoaded = true;
-        boolean loaded = loadFrom(VENDOR_THERMAL_CONFIG, ATMC_TAG)
+        boolean loaded = loadFrom(SYSTEM_EXT_THERMAL_CONFIG, ATMC_TAG)
+                || loadFrom(VENDOR_THERMAL_CONFIG, ATMC_TAG)
                 || loadFrom(SYSTEM_THERMAL_CONFIG, ATMC_TAG);
         if (!loaded) {
             Slog.i(TAG, "missing thermal config");

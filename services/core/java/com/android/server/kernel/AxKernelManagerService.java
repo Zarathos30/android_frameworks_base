@@ -37,6 +37,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.TreeSet;
@@ -453,7 +454,11 @@ public final class AxKernelManagerService {
     }
 
     private void publishMetadata(ArrayList<NodeControl> controls) {
-        ArrayMap<String, int[]> cpuFreqs = new ArrayMap<>();
+        // The config file declares the clusters from little to prime and the role of
+        // each published entry is derived from its index, so the order has to be the
+        // one of the file: ArrayMap iterates by ascending key hashCode instead, which
+        // publishes the clusters in an order unrelated to the config.
+        LinkedHashMap<String, int[]> cpuFreqs = new LinkedHashMap<>();
         int[] gpuFreqs = null;
         for (NodeControl control : controls) {
             if (control.type == AxKernelControl.TYPE_CPU_MIN_FREQ) {
@@ -462,10 +467,11 @@ public final class AxKernelManagerService {
                 gpuFreqs = control.availableValues;
             }
         }
-        Settings.Secure.putIntForUser(mResolver, CPU_CLUSTER_COUNT_KEY, cpuFreqs.size(),
+        List<int[]> clusters = new ArrayList<>(cpuFreqs.values());
+        Settings.Secure.putIntForUser(mResolver, CPU_CLUSTER_COUNT_KEY, clusters.size(),
                 UserHandle.USER_CURRENT);
-        for (int i = 0; i < cpuFreqs.size(); i++) {
-            int[] freqs = cpuFreqs.valueAt(i);
+        for (int i = 0; i < clusters.size(); i++) {
+            int[] freqs = clusters.get(i);
             Settings.Secure.putStringForUser(mResolver, clusterFreqsKey(i), join(freqs),
                     UserHandle.USER_CURRENT);
             if (i == 0) {
@@ -474,7 +480,7 @@ public final class AxKernelManagerService {
             } else if (i == 1) {
                 Settings.Secure.putStringForUser(mResolver, "ax_cpu_big_freqs", join(freqs),
                         UserHandle.USER_CURRENT);
-            } else if (i == cpuFreqs.size() - 1) {
+            } else if (i == clusters.size() - 1) {
                 Settings.Secure.putStringForUser(mResolver, "ax_cpu_prime_freqs", join(freqs),
                         UserHandle.USER_CURRENT);
             }
