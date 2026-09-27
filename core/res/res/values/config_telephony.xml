@@ -554,4 +554,7 @@
          Refer {@see CarrierConfigManager#SATELLITE_DATA_SUPPORT_MODE} to see the possible values -->
     <integer name="max_allowed_data_mode">1</integer>
     <java-symbol type="integer" name="max_allowed_data_mode" />
+
+    <!-- Workaround for transient data RAT UNKNOWN when voice RAT is NR (Onyx) -->
+    <bool name="config_onyx_nr_unknown_workaround">false</bool>
 </resources>

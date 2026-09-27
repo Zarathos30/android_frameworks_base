@@ -23,6 +23,7 @@
        and in layout xml as: "@*android:<type>/<name>"
   -->
   <java-symbol type="id" name="account_name" />
+  <java-symbol type="bool" name="config_onyx_nr_unknown_workaround" />
   <java-symbol type="id" name="account_row_icon" />
   <java-symbol type="id" name="account_row_text" />
   <java-symbol type="id" name="account_type" />
