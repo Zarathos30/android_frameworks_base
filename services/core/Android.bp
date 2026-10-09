@@ -127,7 +127,7 @@ java_library_static {
         ":statslog-mediarouter-java-gen",
         ":services.core-aidl-sources",
         ":services.core-sources",
-        ":ax_dragonite_server_sources",
+        ":ax_dragonite_core_sources",
         ":ax_km_server_sources",
         ":ax_sandbox_server_sources",
         ":ax_memory_server_sources",

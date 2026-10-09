@@ -365,6 +365,13 @@ public abstract class PowerManagerInternal {
      */
     public static final int MODE_DISPLAY_CHANGE = 17;
 
+    public static final int MODE_APP_START = 19;
+    public static final int MODE_UI_ANIMATION = 20;
+    public static final int MODE_SYSTEM_UI = 21;
+    public static final int MODE_FLING = 22;
+    public static final int MODE_CPU_BENCHMARK = 23;
+    public static final int MODE_GPU_BENCHMARK = 24;
+
     /**
      * SetPowerMode() is called to enable/disable specific hint mode, which
      * may result in adjustment of power/performance parameters of the
@@ -374,6 +381,11 @@ public abstract class PowerManagerInternal {
      * @param enabled true to enable, false to disable the mode.
      */
     public abstract void setPowerMode(int mode, boolean enabled);
+
+    public boolean setPowerModeChecked(int mode, boolean enabled) {
+        setPowerMode(mode, enabled);
+        return true;
+    }
 
     /** Returns whether there hasn't been a user activity event for the given number of ms. */
     public abstract boolean wasDeviceIdleFor(long ms);

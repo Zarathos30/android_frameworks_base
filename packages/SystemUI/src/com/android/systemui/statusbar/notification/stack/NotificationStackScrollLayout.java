@@ -16,8 +16,6 @@
 
 package com.android.systemui.statusbar.notification.stack;
 
-import com.android.axion.dragonite.AxDragonite;
-
 import static android.os.Trace.TRACE_TAG_APP;
 import static android.view.MotionEvent.ACTION_CANCEL;
 import static android.view.MotionEvent.ACTION_DOWN;
@@ -4695,12 +4693,10 @@ public class NotificationStackScrollLayout
     void setIsBeingDragged(boolean isDragged) {
         mIsBeingDragged = isDragged;
         if (isDragged) {
-            AxDragonite.onNotificationStackScroll();
             requestDisallowInterceptTouchEvent(true);
             cancelLongPress();
             resetExposedMenuView(true /* animate */, true /* force */);
         } else {
-            AxDragonite.onNotificationStackScrollEnd();
             mSendingTouchesToSceneFramework = false;
         }
     }

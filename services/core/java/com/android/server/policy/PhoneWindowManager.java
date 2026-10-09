@@ -16,7 +16,7 @@
 
 package com.android.server.policy;
 
-import com.android.server.axdragonite.AxDragonite;
+import com.android.server.axdragonite.IAxDragonite;
 
 import static android.Manifest.permission.CREATE_VIRTUAL_DEVICE;
 import static android.Manifest.permission.INTERNAL_SYSTEM_WINDOW;
@@ -5922,7 +5922,10 @@ public class PhoneWindowManager implements WindowManagerPolicy {
     @Override
     public int interceptMotionBeforeQueueingNonInteractive(int displayId, int source, int action,
             long whenNanos, int policyFlags) {
-        AxDragonite.getInstance().inputBoost();
+        final IAxDragonite dragonite = LocalServices.getService(IAxDragonite.class);
+        if (dragonite != null) {
+            dragonite.inputBoost();
+        }
         if ((policyFlags & FLAG_WAKE) != 0) {
             if (mWindowWakeUpPolicy.wakeUpFromMotion(displayId, whenNanos / 1000000, source,
                     action == MotionEvent.ACTION_DOWN, mDeviceGoingToSleep)) {

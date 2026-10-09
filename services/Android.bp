@@ -344,6 +344,7 @@ java_library {
         "services.net",
         "services.people",
         "services.permission",
+        "services.dragonite",
         "services.print",
         "services.profcollect",
         "services.userrecovery",

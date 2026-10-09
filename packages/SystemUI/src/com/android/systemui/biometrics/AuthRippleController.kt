@@ -32,6 +32,7 @@ import com.android.keyguard.KeyguardUpdateMonitorCallback
 import com.android.keyguard.logging.KeyguardLogger
 import com.android.settingslib.Utils
 import com.android.systemui.CoreStartable
+import com.android.systemui.ax.boost.AxBoosterController
 import com.android.systemui.biometrics.data.repository.FacePropertyRepository
 import com.android.systemui.biometrics.shared.model.UdfpsOverlayParams
 import com.android.systemui.dagger.SysUISingleton
@@ -86,6 +87,7 @@ constructor(
     private val lightRevealScrim: LightRevealScrim,
     private val authRippleInteractor: AuthRippleInteractor,
     private val facePropertyRepository: FacePropertyRepository,
+    private val boosterController: AxBoosterController,
     rippleView: AuthRippleView?,
 ) :
     ViewController<AuthRippleView>(rippleView),
@@ -204,9 +206,13 @@ constructor(
             }
         }
 
+        boosterController.acquireRippleAnimationBoost()
         mView.startUnlockedRipple(
             /* end runnable */
-            Runnable { notificationShadeWindowController.setForcePluginOpen(false, this) }
+            Runnable {
+                boosterController.releaseRippleAnimationBoost()
+                notificationShadeWindowController.setForcePluginOpen(false, this)
+            }
         )
     }
 
