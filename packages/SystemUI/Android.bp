@@ -526,7 +526,6 @@ android_library {
         "ax_compose",
         "ax_blur",
         "ax_customization",
-        "ax_dragonite",
         "ax_systemui_res",
         "SystemUI-res",
         "WifiTrackerLib",

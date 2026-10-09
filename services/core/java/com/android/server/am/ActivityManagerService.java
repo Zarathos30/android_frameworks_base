@@ -479,7 +479,7 @@ import com.android.server.criticalevents.CriticalEventLog;
 import com.android.server.firewall.IntentFirewall;
 import com.android.server.graphics.fonts.FontManagerInternal;
 import com.android.server.job.JobSchedulerInternal;
-import com.android.server.axdragonite.AxDragonite;
+import com.android.server.axdragonite.IAxDragonite;
 import com.android.server.kernel.AxKernelManagerService;
 import com.android.server.am.AxMemoryManager;
 import com.android.server.am.AxUsageManager;
@@ -20395,12 +20395,16 @@ public class ActivityManagerService extends IActivityManager.Stub
 
     @Override
     public int sceneBoostAcquire(int sceneId, Bundle data) {
-        return AxDragonite.getInstance().sceneBoostAcquire(sceneId, data);
+        IAxDragonite dragonite = LocalServices.getService(IAxDragonite.class);
+        return dragonite != null ? dragonite.sceneBoostAcquire(sceneId, data) : -1;
     }
 
     @Override
     public void sceneBoostRelease(int handle) {
-        AxDragonite.getInstance().sceneBoostRelease(handle);
+        IAxDragonite dragonite = LocalServices.getService(IAxDragonite.class);
+        if (dragonite != null) {
+            dragonite.sceneBoostRelease(handle);
+        }
     }
 
     public void killProcessOnFaceAuthStart() {
@@ -20409,7 +20413,8 @@ public class ActivityManagerService extends IActivityManager.Stub
 
     @Override
     public boolean isSceneIdExist(int sceneId) {
-        return AxDragonite.getInstance().isSceneIdExist(sceneId);
+        IAxDragonite dragonite = LocalServices.getService(IAxDragonite.class);
+        return dragonite != null && dragonite.isSceneIdExist(sceneId);
     }
 
     @Override

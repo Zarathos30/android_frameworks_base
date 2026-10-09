@@ -272,7 +272,7 @@ import com.android.server.EventLogTags;
 import com.android.server.LocalManagerRegistry;
 import com.android.server.LocalServices;
 import com.android.server.SystemService;
-import com.android.server.axdragonite.AxDragonite;
+import com.android.server.axdragonite.IAxDragonite;
 import com.android.server.audio.AudioServiceEvents.DeviceVolumeEvent;
 import com.android.server.audio.AudioServiceEvents.PhoneStateEvent;
 import com.android.server.audio.AudioServiceEvents.VolChangedBroadcastEvent;
@@ -7310,12 +7310,16 @@ public class AudioService extends IAudioService.Stub
     }
 
     private void updateRingtoneDex2oatRestriction(int previousMode, int newMode) {
+        final IAxDragonite dragonite = LocalServices.getService(IAxDragonite.class);
+        if (dragonite == null) {
+            return;
+        }
         if (newMode == AudioSystem.MODE_RINGTONE) {
-            AxDragonite.getInstance().adjustCpusetCpus("dex2oat", null, 0L);
+            dragonite.adjustCpusetCpus("dex2oat", null, 0L);
             return;
         }
         if (previousMode == AudioSystem.MODE_RINGTONE && newMode == AudioSystem.MODE_NORMAL) {
-            AxDragonite.getInstance().adjustCpusetCpus("dex2oat", null, -1L);
+            dragonite.adjustCpusetCpus("dex2oat", null, -1L);
         }
     }
 

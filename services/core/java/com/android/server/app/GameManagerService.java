@@ -91,7 +91,7 @@ import android.util.Slog;
 import android.util.StatsEvent;
 import android.util.Xml;
 
-import com.android.server.axdragonite.AxDragonite;
+import com.android.server.axdragonite.IAxDragonite;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
@@ -1610,7 +1610,7 @@ public final class GameManagerService extends IGameManagerService.Stub {
         mPowerManagerInternal.setPowerMode(Mode.GAME_LOADING, false);
         Slog.v(TAG, "Game power mode OFF (game manager service start/restart)");
         mPowerManagerInternal.setPowerMode(Mode.GAME, false);
-        AxDragonite.getInstance().updateGameModeBoost(false);
+        updateAxDragoniteGameMode(false);
 
         mGameDefaultFrameRateValue = (float) mSysProps.getInt(
                 PROPERTY_RO_SURFACEFLINGER_GAME_DEFAULT_FRAME_RATE, 60);
@@ -2351,7 +2351,7 @@ public final class GameManagerService extends IGameManagerService.Stub {
                     if (!mGameForegroundUids.isEmpty() && mNonGameForegroundUids.isEmpty()) {
                         Slog.v(TAG, "Game power mode OFF (first non-game in foreground)");
                         mPowerManagerInternal.setPowerMode(Mode.GAME, false);
-                        AxDragonite.getInstance().updateGameModeBoost(false);
+                        updateAxDragoniteGameMode(false);
                     }
                     mNonGameForegroundUids.add(uid);
                     return;
@@ -2359,7 +2359,7 @@ public final class GameManagerService extends IGameManagerService.Stub {
                 if (mGameForegroundUids.isEmpty() && mNonGameForegroundUids.isEmpty()) {
                     Slog.v(TAG, "Game power mode ON (first game in foreground)");
                     mPowerManagerInternal.setPowerMode(Mode.GAME, true);
-                    AxDragonite.getInstance().updateGameModeBoost(true);
+                    updateAxDragoniteGameMode(true);
                 }
                 final boolean isGameDefaultFrameRateDisabled =
                         mSysProps.getBoolean(
@@ -2377,17 +2377,24 @@ public final class GameManagerService extends IGameManagerService.Stub {
                     if (mGameForegroundUids.isEmpty() && mNonGameForegroundUids.isEmpty()) {
                         Slog.v(TAG, "Game power mode OFF (no games in foreground)");
                         mPowerManagerInternal.setPowerMode(Mode.GAME, false);
-                        AxDragonite.getInstance().updateGameModeBoost(false);
+                        updateAxDragoniteGameMode(false);
                     }
                 } else if (mNonGameForegroundUids.contains(uid)) {
                     mNonGameForegroundUids.remove(uid);
                     if (mNonGameForegroundUids.isEmpty() && !mGameForegroundUids.isEmpty()) {
                         Slog.v(TAG, "Game power mode ON (only games in foreground)");
                         mPowerManagerInternal.setPowerMode(Mode.GAME, true);
-                        AxDragonite.getInstance().updateGameModeBoost(true);
+                        updateAxDragoniteGameMode(true);
                     }
                 }
             }
+        }
+    }
+
+    private void updateAxDragoniteGameMode(boolean enabled) {
+        IAxDragonite dragonite = LocalServices.getService(IAxDragonite.class);
+        if (dragonite != null) {
+            dragonite.updateGameModeBoost(enabled);
         }
     }
 }

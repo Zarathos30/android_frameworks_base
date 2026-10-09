@@ -212,6 +212,7 @@ import com.android.server.notification.NotificationManagerService;
 import com.android.server.oemlock.OemLockService;
 import com.android.server.om.OverlayManagerService;
 import com.android.server.os.BugreportManagerService;
+import com.android.server.axdragonite.AxDragoniteService;
 import com.android.server.os.DeviceIdentifiersPolicyService;
 import com.android.server.os.NativeTombstoneManagerService;
 import com.android.server.os.SchedulingPolicyService;
@@ -1281,6 +1282,10 @@ public final class SystemServer implements Dumpable {
         LocalServices.addService(AppOpMigrationHelper.class,
                 new AppOpMigrationHelperImpl());
         mSystemServiceManager.startService(AccessCheckingService.class);
+        t.traceEnd();
+
+        t.traceBegin("StartAxDragonite");
+        mSystemServiceManager.startService(AxDragoniteService.class);
         t.traceEnd();
 
         // Activity manager runs the show.

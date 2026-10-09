@@ -16,9 +16,6 @@
 
 package com.android.server.wm;
 
-import com.android.internal.dragonite.AxDragoniteConstants;
-import com.android.server.axdragonite.AxDragonite;
-
 import static android.app.ActivityManager.LOCK_TASK_MODE_NONE;
 import static android.app.ActivityManager.PROCESS_STATE_IMPORTANT_FOREGROUND;
 import static android.app.ActivityOptions.ANIM_CLIP_REVEAL;
@@ -4349,7 +4346,6 @@ final class ActivityRecord extends WindowToken {
         }
         chain.collectClose(trigger);
         cleanUp(true /* cleanServices */, true /* setState */);
-        AxDragonite.getInstance().onAppDied(this.packageName, this.shortComponentName, this.mUserId);
         if (remove) {
             if (mStartingData != null && mVisible && task != null) {
                 // A corner case that the app terminates its trampoline activity on a separated
@@ -5462,7 +5458,6 @@ final class ActivityRecord extends WindowToken {
                 ActivityTaskManagerService.LAYOUT_REASON_VISIBILITY_CHANGED);
         mTaskSupervisor.getActivityMetricsLogger().notifyVisibilityChanged(this);
         mTaskSupervisor.mAppVisibilitiesChangedSinceLastPause = true;
-        AxDragonite.getInstance().onSetVisibility(this.packageName, this.shortComponentName, this.mUserId, visible);
     }
 
     private void setVisibilityInner(boolean visible) {
@@ -6282,7 +6277,6 @@ final class ActivityRecord extends WindowToken {
 
         // Schedule an idle timeout in case the app doesn't do it for us.
         mTaskSupervisor.scheduleIdleTimeout(this);
-        AxDragonite.getInstance().onReportResumedActivity(this.app != null ? this.app.getPid() : 0, this.packageName, this.shortComponentName);
 
         mTaskSupervisor.mStoppingActivities.remove(this);
         if (getDisplayArea().allResumedActivitiesComplete()) {
@@ -6601,7 +6595,6 @@ final class ActivityRecord extends WindowToken {
 
     /** Called when the windows associated app window container are drawn. */
     private void onWindowsDrawn() {
-        AxDragonite.getInstance().onWindowsDrawn(this.packageName, this.app != null ? this.app.getPid() : -1);
         final TransitionInfoSnapshot info = mTaskSupervisor
                 .getActivityMetricsLogger().notifyWindowsDrawn(this);
         final boolean validInfo = info != null;
