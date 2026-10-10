@@ -1284,9 +1284,11 @@ public final class SystemServer implements Dumpable {
         mSystemServiceManager.startService(AccessCheckingService.class);
         t.traceEnd();
 
-        t.traceBegin("StartAxDragonite");
-        mSystemServiceManager.startService(AxDragoniteService.class);
-        t.traceEnd();
+        if (SystemProperties.getBoolean("persist.sys.axd_support", true)) {
+            t.traceBegin("StartAxDragonite");
+            mSystemServiceManager.startService(AxDragoniteService.class);
+            t.traceEnd();
+        }
 
         // Activity manager runs the show.
         t.traceBegin("StartActivityManager");
