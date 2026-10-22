@@ -1553,10 +1553,6 @@ public class DisplayPolicy {
     }
 
     void onDisplayInfoChanged(DisplayInfo info) {
-        final IAxDragonite dragonite = LocalServices.getService(IAxDragonite.class);
-        if (dragonite != null) {
-            dragonite.sceneBoostAcquire(AxDragoniteConstants.SCENE_ROTATION, null);
-        }
         if (!CLIENT_TRANSIENT) {
             mSystemGestures.onDisplayInfoChanged(info);
         }

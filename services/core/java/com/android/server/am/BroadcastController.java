@@ -116,6 +116,7 @@ import com.android.server.IntentResolver;
 import com.android.server.LocalManagerRegistry;
 import com.android.server.LocalServices;
 import com.android.server.SystemConfig;
+import com.android.server.axdualapps.AxDualAppsService;
 import com.android.server.pm.Computer;
 import com.android.server.pm.SaferIntentUtils;
 import com.android.server.pm.UserManagerInternal;
@@ -1240,6 +1241,10 @@ class BroadcastController {
                                         mService.mServices.forceStopPackageLocked(ssp, userId);
                                         mService.mAtmInternal.onPackageUninstalled(ssp, userId);
                                         mService.mBatteryStatsService.notePackageUninstalled(ssp);
+                                        if (AxDualAppsService.get() != null) {
+                                            AxDualAppsService.get().onPackageUninstalled(
+                                                    intent.getIntExtra(Intent.EXTRA_UID, -1), ssp, intent);
+                                        }
                                     }
                                 } else {
                                     if (killProcess) {

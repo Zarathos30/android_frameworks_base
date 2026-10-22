@@ -25,6 +25,7 @@ import android.content.pm.PackageManagerInternal;
 import android.content.res.Resources;
 import android.os.SystemProperties;
 import android.os.UserHandle;
+import android.os.UserManager;
 import android.util.ArrayMap;
 import android.util.ArraySet;
 import android.util.DebugUtils;
@@ -35,6 +36,7 @@ import android.util.SparseArrayMap;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.server.LocalServices;
 import com.android.server.SystemConfig;
+import com.android.server.axdualapps.AxDualAppsService;
 import com.android.server.pm.pkg.AndroidPackage;
 import com.android.server.pm.pkg.PackageStateInternal;
 
@@ -505,7 +507,15 @@ class UserSystemPackageInstaller {
      * See {@link #getInstallablePackagesForUserType(String)}.
      */
     private @Nullable Set<String> getInstallablePackagesForUserId(@UserIdInt int userId) {
-        return getInstallablePackagesForUserType(mUm.getUserInfo(userId).userType);
+        String userType = mUm.getUserInfo(userId).userType;
+        Set<String> installablePackages = getInstallablePackagesForUserType(userType);
+        if (AxDualAppsService.get() != null && UserManager.isUserTypeCloneProfile(userType)) {
+            if (installablePackages == null) {
+                installablePackages = new ArraySet<>();
+            }
+            AxDualAppsService.get().overrideInstallablePackages(userType, installablePackages);
+        }
+        return installablePackages;
     }
 
     /**

@@ -2606,12 +2606,28 @@ public abstract class OomAdjuster {
                 return false;
             }
 
+            // Never freeze processes that are not in cached state (e.g. perceptible or game targetAdj)
+            if (proc.getCurAdj() < CACHED_APP_MIN_ADJ) {
+                return false;
+            }
+
+            // Never freeze a background process if a sibling process in the same UID is foreground/TOP
+            final UidRecordInternal uidRec = proc.getUidRecord();
+            if (uidRec != null && (uidRec.getCurCapability() & ALL_CPU_TIME_CAPABILITIES) != 0) {
+                return false;
+            }
+
             // Default, freeze a process.
             return true;
         } else {
             // The CPU capability handling covers all setShouldNotFreeze paths. Must check
             // shouldNotFreeze, if the CPU capability is not being used.
             if (proc.shouldNotFreeze()) {
+                return false;
+            }
+
+            final UidRecordInternal uidRec = proc.getUidRecord();
+            if (uidRec != null && uidRec.getCurProcState() <= PROCESS_STATE_TOP) {
                 return false;
             }
 

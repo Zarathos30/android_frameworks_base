@@ -4416,6 +4416,10 @@ public final class ProcessList implements ProcessStateController.ProcessLruUpdat
                 if (r == null || r.isKilled() || r.getThread() == null) {
                     continue;
                 }
+                final UidRecord uidRec = r.getUidRecord();
+                if (uidRec != null && uidRec.getCurProcState() <= ActivityManager.PROCESS_STATE_TOP) {
+                    continue;
+                }
                 final int adj = r.getCurAdj();
                 if (r.uid > Process.FIRST_APPLICATION_UID
                         && adj >= minAdj
@@ -4427,6 +4431,16 @@ public final class ProcessList implements ProcessStateController.ProcessLruUpdat
             }
         }
         return list;
+    }
+
+    public int axGetTopAppPid() {
+        final ProcessRecord topApp = mService.getTopApp();
+        return topApp != null ? topApp.getPid() : -1;
+    }
+
+    public String axGetTopAppPackageName() {
+        final ProcessRecord topApp = mService.getTopApp();
+        return topApp != null && topApp.info != null ? topApp.info.packageName : null;
     }
 
     /**

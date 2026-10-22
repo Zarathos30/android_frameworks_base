@@ -11148,6 +11148,17 @@ public class ActivityManagerService extends IActivityManager.Stub
                 mProcessList.mAppExitInfoTracker.dumpHistoryProcessExitInfo(pw, dumpPackage);
             } else if ("component-alias".equals(cmd)) {
                 mComponentAliasResolver.dump(pw);
+            } else if ("dragonite".equals(cmd) || "ax_dragonite".equals(cmd)) {
+                IAxDragonite dragonite = LocalServices.getService(IAxDragonite.class);
+                if (dragonite != null) {
+                    String[] newArgs = new String[args.length - opti];
+                    if (newArgs.length > 0) {
+                        System.arraycopy(args, opti, newArgs, 0, newArgs.length);
+                    }
+                    dragonite.dump(fd, pw, newArgs);
+                } else {
+                    pw.println("AxDragonite service is not available.");
+                }
             } else {
                 // Dumping a single activity?
                 if (!mAtmInternal.dumpActivity(fd, pw, cmd, args, opti, dumpAll,
@@ -11188,6 +11199,16 @@ public class ActivityManagerService extends IActivityManager.Stub
             }
             if (dumpAll) {
                 dumpAppRestrictionController(pw);
+            }
+            if (dumpPackage == null) {
+                IAxDragonite dragonite = LocalServices.getService(IAxDragonite.class);
+                if (dragonite != null) {
+                    pw.println();
+                    pw.println(
+                            "-------------------------------------------------------------------------------");
+                    pw.println("DRAGONITE STATE (dumpsys activity dragonite):");
+                    dragonite.dump(fd, pw, EMPTY_STRING_ARRAY);
+                }
             }
         }
         Binder.restoreCallingIdentity(origId);
@@ -19605,20 +19626,11 @@ public class ActivityManagerService extends IActivityManager.Stub
                 if (Flags.cpuTimeCapabilityBasedFreezePolicy()
                         && !com.android.server.notification.Flags.allowFreezingIdleNls()
                         && app.getCurAdj() < CACHED_APP_MIN_ADJ) {
-                    Slog.wtfStack(TAG, "Unexpected non-cached process may get frozen soon: "
+                    Slog.w(TAG, "Skipping freeze for non-cached process: "
                             + " name: " + app.processName
                             + " curAdj: " + app.getCurAdj()
-                            + " oldOomAdj: " + oldOomAdj
-                            + " curRawAdj: " + app.getCurRawAdj()
-                            + " maxAdj: " + app.getMaxAdj()
-                            + " adjType: " + app.getAdjType()
-                            + " adjTarget: " + app.getAdjTarget()
-                            + " adjSource: " + app.getAdjSource()
-                            + " adjSourcePrcState: " + app.getAdjSourceProcState()
-                            + " serviceB: " + app.isServiceB()
-                            + " curProcState: " + app.getCurProcState()
-                            + " curRawProcState: " + app.getCurRawProcState()
-                            + " curSchedGroup: " + app.getCurrentSchedulingGroup());
+                            + " curProcState: " + app.getCurProcState());
+                    return;
                 }
                 // This process should be frozen.
                 if (immediate && !app.isFrozen()) {

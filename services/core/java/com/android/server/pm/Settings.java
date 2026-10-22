@@ -1197,13 +1197,25 @@ public final class Settings implements Watchable, Snappable, ResilientAtomicFile
                         );
                     }
                 }
-            } else if (isStoppedSystemApp) {
-                if (DEBUG_STOPPED) {
-                    RuntimeException e = new RuntimeException("here");
-                    Slog.i(PackageManagerService.TAG, "Stopping system package " + pkgName, e);
+            } else {
+                if (isStoppedSystemApp) {
+                    if (DEBUG_STOPPED) {
+                        RuntimeException e = new RuntimeException("here");
+                        Slog.i(PackageManagerService.TAG, "Stopping system package " + pkgName, e);
+                    }
+                    pkgSetting.setStopped(true, installUserId);
+                    pkgSetting.setScannedAsStoppedSystemApp(true);
                 }
-                pkgSetting.setStopped(true, installUserId);
-                pkgSetting.setScannedAsStoppedSystemApp(true);
+                if (AxDualAppsService.get() != null) {
+                    List<UserInfo> users = getAllUsers(userManager);
+                    if (users != null) {
+                        for (UserInfo user : users) {
+                            if (AxDualAppsService.get().installBlocked(pkgName, pkgFlags, installUserId, user)) {
+                                pkgSetting.setInstalled(false, user.id);
+                            }
+                        }
+                    }
+                }
             }
             if (sharedUser != null) {
                 pkgSetting.setAppId(sharedUser.mAppId);
@@ -1296,6 +1308,11 @@ public final class Settings implements Watchable, Snappable, ResilientAtomicFile
                     final List<UserInfo> allUserInfos = getAllUsers(userManager);
                     if (allUserInfos != null) {
                         for (UserInfo userInfo : allUserInfos) {
+                            if (AxDualAppsService.get() != null
+                                    && AxDualAppsService.get().installBlocked(pkgName, pkgFlags, UserHandle.USER_ALL, userInfo)) {
+                                pkgSetting.setInstalled(false, userInfo.id);
+                                continue;
+                            }
                             pkgSetting.setInstalled(true, userInfo.id);
                             pkgSetting.setUninstallReason(UNINSTALL_REASON_UNKNOWN, userInfo.id);
                         }

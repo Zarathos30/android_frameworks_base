@@ -12380,9 +12380,10 @@ public class NotificationManagerService extends SystemService {
         if (uid == Process.ROOT_UID && ROOT_PKG.equals(pkg)) {
             return;
         }
-        if (!UserHandle.isSameApp(uid, mPackageManagerInternal.getPackageUid(pkg, 0L, userId))) {
-            throw new SecurityException("Package " + pkg + " is not owned by uid " + uid);
+        if (mPackageManagerInternal.isSameApp(pkg, 0L, uid, userId)) {
+            return;
         }
+        throw new SecurityException("Package " + pkg + " is not owned by uid " + uid);
     }
 
     private boolean isCallerSameApp(String pkg, int uid, int userId) {
