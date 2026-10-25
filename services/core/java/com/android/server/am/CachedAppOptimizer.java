@@ -2080,6 +2080,13 @@ public class CachedAppOptimizer {
                 opt.setPendingFreeze(false);
                 pid = proc.getPid();
 
+                final UidRecord uidRec = proc.getUidRecord();
+                if (uidRec != null
+                        && uidRec.getCurProcState() <= ActivityManager.PROCESS_STATE_TOP) {
+                    Slog.d(TAG_AM, "Skipping freeze for TOP process " + pid + " " + name);
+                    return;
+                }
+
                 if (mFreezerOverride) {
                     opt.setFreezerOverride(true);
                     Slog.d(TAG_AM, "Skipping freeze for process " + pid
@@ -2143,10 +2150,8 @@ public class CachedAppOptimizer {
                 unfrozenDuration = opt.getFreezeUnfreezeTime() - unfreezeTime;
                 frozen = opt.isFrozen();
 
-                final UidRecord uidRec = proc.getUidRecord();
                 if (frozen && uidRec != null && uidRec.areAllProcessesFrozen()) {
                     uidRec.setFrozen(true);
-
                     postUidFrozenMessage(uidRec.getUid(), true);
                 }
             }

@@ -4420,6 +4420,9 @@ public final class ProcessList implements ProcessStateController.ProcessLruUpdat
                 if (uidRec != null && uidRec.getCurProcState() <= ActivityManager.PROCESS_STATE_TOP) {
                     continue;
                 }
+                if (axIsFreezeExempt(r)) {
+                    continue;
+                }
                 final int adj = r.getCurAdj();
                 if (r.uid > Process.FIRST_APPLICATION_UID
                         && adj >= minAdj
@@ -4431,6 +4434,22 @@ public final class ProcessList implements ProcessStateController.ProcessLruUpdat
             }
         }
         return list;
+    }
+
+    private static boolean axIsFreezeExempt(ProcessRecord r) {
+        return r.isPersistent()
+                || r.isHomeProcess()
+                || r.isPreviousProcess()
+                || r.hasVisibleActivities()
+                || r.getHasTopUi()
+                || r.getHasOverlayUi()
+                || r.getScheduleLikeTopApp()
+                || r.getCurrentSchedulingGroup() >= SCHED_GROUP_TOP_APP
+                || r.shouldNotFreeze()
+                || r.isFrozen()
+                || r.isPendingFreeze()
+                || "com.android.systemui".equals(r.processName)
+                || (r.info != null && "com.android.systemui".equals(r.info.packageName));
     }
 
     public int axGetTopAppPid() {

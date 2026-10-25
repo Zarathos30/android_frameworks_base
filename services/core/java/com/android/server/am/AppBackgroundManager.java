@@ -185,6 +185,11 @@ public final class AppBackgroundManager {
         if (TextUtils.isEmpty(packageName) || isBlockedPackage(packageName)) {
             return;
         }
+        synchronized (mLock) {
+            if (mFreezerLevel == FREEZER_LEVEL_DISABLED || mFreezerPackages.isEmpty()) {
+                return;
+            }
+        }
         mService.mHandler.post(() -> {
             synchronized (mService) {
                 synchronized (mService.mProcLock) {
@@ -198,6 +203,15 @@ public final class AppBackgroundManager {
         if (TextUtils.isEmpty(packageName)) {
             return;
         }
+        synchronized (mLock) {
+            if (unfreezeReason == COMPLETE_LAUNCH_UNFREEZE) {
+                if (mLaunchFrozenPackages.isEmpty()) {
+                    return;
+                }
+            } else if (!hasFrozenPackages()) {
+                return;
+            }
+        }
         mService.mHandler.post(() -> {
             synchronized (mService) {
                 synchronized (mService.mProcLock) {
@@ -209,7 +223,7 @@ public final class AppBackgroundManager {
 
     @GuardedBy({"mService", "mService.mProcLock"})
     public void startUnfreezeService(ProcessRecord app, int unfreezeReason) {
-        if (app == null) {
+        if (app == null || !hasFrozenPackages()) {
             return;
         }
         final ArraySet<String> packages = getDependentFrozenPackagesLSP(app);
@@ -220,17 +234,19 @@ public final class AppBackgroundManager {
 
     @GuardedBy({"mService", "mService.mProcLock"})
     public boolean checkNeedFreezeProcessLocked(ProcessRecord app) {
-        return !getDependentFrozenPackagesLSP(app).isEmpty();
+        return hasFrozenPackages() && !getDependentFrozenPackagesLSP(app).isEmpty();
     }
 
     void onProcessSchedulingGroupChanged(ProcessRecord app, int oldSchedGroup, int curSchedGroup) {
-        if (app == null || app.info == null || isExemptApplication(app.info)
-                || !TextUtils.equals(app.processName, app.info.packageName)) {
+        if (app == null || app.info == null || isExemptApplication(app.info)) {
             return;
         }
         final String packageName = app.info.packageName;
         if (isTopAppGroup(curSchedGroup)) {
             setPackageForeground(packageName, true);
+            if (!hasFrozenPackages()) {
+                return;
+            }
             unfreezePackageLSP(packageName, UNFREEZE_REASON_ACTIVITY);
             return;
         }
@@ -350,6 +366,12 @@ public final class AppBackgroundManager {
             builder.append(packages.valueAt(i));
         }
         return builder.toString();
+    }
+
+    private boolean hasFrozenPackages() {
+        synchronized (mLock) {
+            return !mFrozenPackages.isEmpty() || !mLaunchFrozenPackages.isEmpty();
+        }
     }
 
     @GuardedBy({"mService", "mService.mProcLock"})
