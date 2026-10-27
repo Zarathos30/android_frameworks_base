@@ -13957,6 +13957,29 @@ public final class Settings {
          * @hide
          */
         public static final String SPOOF_TRICKYSTORE_PATCH = "spoof_trickystore_patch";
+
+        /**
+         * Style of the desktop mode app handle: one of the {@code DESKTOP_MODE_APP_HANDLE_STYLE_*}
+         * values. Defaults to {@link #DESKTOP_MODE_APP_HANDLE_STYLE_HIDDEN}.
+         *
+         * @hide
+         */
+        public static final String DESKTOP_MODE_APP_HANDLE_STYLE = "desktop_mode_app_handle_style";
+
+        /**
+         * @hide
+         */
+        public static final int DESKTOP_MODE_APP_HANDLE_STYLE_PILL = 0;
+
+        /**
+         * @hide
+         */
+        public static final int DESKTOP_MODE_APP_HANDLE_STYLE_HIDDEN = 1;
+
+        /**
+         * @hide
+         */
+        public static final int DESKTOP_MODE_APP_HANDLE_STYLE_DOTS = 2;
     }
 
     /**
