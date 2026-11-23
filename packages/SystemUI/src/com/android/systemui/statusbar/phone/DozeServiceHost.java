@@ -406,11 +406,6 @@ public final class DozeServiceHost implements DozeHost {
     }
 
     @Override
-    public boolean isWakeAndUnlocking() {
-        return mBiometricUnlockControllerLazy.get().isWakeAndUnlock();
-    }
-
-    @Override
     public boolean isProvisioned() {
         return mDeviceProvisionedController.isDeviceProvisioned()
                 && mDeviceProvisionedController.isCurrentUserSetup();
